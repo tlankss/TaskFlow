@@ -9,7 +9,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:mac:arm": "npm run build && electron-builder --mac --arm64",
+    "build:mac:intel": "npm run build && electron-builder --mac --x64",
+    "build:mac:universal": "npm run build && electron-builder --mac --universal"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
@@ -38,5 +42,39 @@
     "vite": "^5.4.3",
     "vite-plugin-electron": "^0.28.7",
     "vite-plugin-electron-renderer": "^0.14.5"
+  },
+  "build": {
+    "appId": "com.taskflow.app",
+    "productName": "TaskFlow",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "mac": {
+      "icon": "public/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   }
 }
