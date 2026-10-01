@@ -707,7 +707,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     type="number"
                     min={1}
                     max={480}
-                    step={5}
+                    step={1}
                     value={estimatedMinutes}
                     onChange={(e) => setEstimatedMinutes(Number(e.target.value))}
                     className="w-20 px-2 py-1 pr-6 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-[#07C160]"
