@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getUserProfile: () => ipcRenderer.invoke('db:getUserProfile'),
   updateUserProfile: (profile: any) => ipcRenderer.invoke('db:updateUserProfile', profile),
   getUserStats: () => ipcRenderer.invoke('db:getUserStats'),
+  getAuthData: () => ipcRenderer.invoke('db:getAuthData'),
+  saveAuthData: (authData: any) => ipcRenderer.invoke('db:saveAuthData', authData),
+  clearAuthData: () => ipcRenderer.invoke('db:clearAuthData'),
   generateAIWeeklyReport: (params: { apiKey?: string; baseUrl?: string; model?: string; tasks: any[]; userRole?: string }) =>
     ipcRenderer.invoke('ai:generateWeeklyReport', params),
   aiBreakdownTask: (params: { title: string; notes?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) =>

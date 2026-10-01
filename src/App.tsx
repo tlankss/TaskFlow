@@ -40,6 +40,8 @@ import {
   cleanRemoteBooksBloatedCovers,
   uploadBookCoverToStorage,
   getCurrentUser,
+  restoreAuthSessionIfAvailable,
+  ensureFreshSession,
   uploadBookFileToStorage,
 } from './lib/supabase'
 import { getBookBinary, saveBookBinary, deleteBookBinary } from './lib/bookStorage'
@@ -213,10 +215,14 @@ export const App: React.FC = () => {
   const isTasksSyncingRef = useRef(false)
   const isReadingSyncingRef = useRef(false)
   const lastReadingSyncTimeRef = useRef<number>(0)
+  // SWR 视口数据缓存记录 (60秒内切回相同视图直接复用内存数据，0ms 极速响应，杜绝多余远程网络等待)
+  const lastScopedFetchRef = useRef<Record<string, number>>({})
 
   // Load initial data and run silent tasks delta sync (guarded against React 18 StrictMode double-fire)
   useEffect(() => {
     const initData = async () => {
+      // 1. 跨版本登录自愈：从本地 Native 文件无感恢复登录会话，并执行 Token 提前静默续期
+      await restoreAuthSessionIfAvailable()
       await loadData()
       if (initialTasksSyncFiredRef.current) return
       initialTasksSyncFiredRef.current = true
@@ -231,10 +237,24 @@ export const App: React.FC = () => {
       }
     }
     initData()
+
+    // 窗口重新聚焦或从系统睡眠唤醒时，静默检测并刷新 Token，杜绝长时间放置后掉登录
+    const handleWindowFocus = () => {
+      ensureFreshSession().catch(() => {})
+    }
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+    }
   }, [])
 
-  // 1. 仅按需拉取今日聚焦任务 (首屏极速加载，仅拉取今日未完成)
-  const loadTodayTasksScoped = async () => {
+  // 1. 仅按需拉取今日聚焦任务 (首屏极速加载，本地优先 + SWR 缓存)
+  const loadTodayTasksScoped = async (force = false) => {
+    const now = Date.now()
+    if (!force && lastScopedFetchRef.current['today'] && now - lastScopedFetchRef.current['today'] < 60000) {
+      return
+    }
+    lastScopedFetchRef.current['today'] = now
     try {
       const res = await tasksApi.getTodayTasks()
       if (res.success && res.data) {
@@ -249,8 +269,14 @@ export const App: React.FC = () => {
     }
   }
 
-  // 2. 收集箱按需分页拉取 (按页请求，杜绝一次性全量加载)
-  const loadInboxTasksScoped = async (page: number) => {
+  // 2. 收集箱按需分页拉取 (按页请求，带内存 SWR 缓存)
+  const loadInboxTasksScoped = async (page: number, force = false) => {
+    const cacheKey = `inbox_${page}_${searchQuery || ''}`
+    const now = Date.now()
+    if (!force && lastScopedFetchRef.current[cacheKey] && now - lastScopedFetchRef.current[cacheKey] < 60000) {
+      return
+    }
+    lastScopedFetchRef.current[cacheKey] = now
     try {
       const res = await tasksApi.getInboxTasks({ page, pageSize: inboxPageSize, keyword: searchQuery })
       if (res.success && res.data) {
@@ -287,8 +313,14 @@ export const App: React.FC = () => {
     }
   }
 
-  // 4. 已完成归档按需分页拉取
-  const loadCompletedTasksScoped = async (page: number) => {
+  // 4. 已完成归档按需分页拉取 (带内存 SWR 缓存)
+  const loadCompletedTasksScoped = async (page: number, force = false) => {
+    const cacheKey = `completed_${page}_${searchQuery || ''}`
+    const now = Date.now()
+    if (!force && lastScopedFetchRef.current[cacheKey] && now - lastScopedFetchRef.current[cacheKey] < 60000) {
+      return
+    }
+    lastScopedFetchRef.current[cacheKey] = now
     try {
       const res = await tasksApi.getCompletedTasks({ page, pageSize: completedPageSize, keyword: searchQuery })
       if (res.success && res.data) {
@@ -335,10 +367,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (currentView === 'inbox') {
       setInboxPage(1)
-      loadInboxTasksScoped(1)
+      loadInboxTasksScoped(1, true)
     } else if (currentView === 'completed') {
       setCompletedPage(1)
-      loadCompletedTasksScoped(1)
+      loadCompletedTasksScoped(1, true)
     }
   }, [searchQuery])
 
@@ -574,6 +606,7 @@ export const App: React.FC = () => {
 
   // 手动触发云端增量同步（按当前视图智能分级：阅读视图同步书籍，清单视图单独同步任务）
   const handleManualSync = async () => {
+    lastScopedFetchRef.current = {}
     if (currentView === 'reading') {
       await performReadingDeltaSync(true)
     } else {
@@ -1249,7 +1282,6 @@ export const App: React.FC = () => {
       const updatedTasks = tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
       setTasks(updatedTasks)
       cloudUpdateTask(taskId, updates)
-      loadData()
     }
   }
 
@@ -1374,7 +1406,6 @@ export const App: React.FC = () => {
       const updatedTasks: Task[] = tasks.map((t) => (t.id === task.id ? { ...t, ...updates } : t))
       setTasks(updatedTasks)
       cloudUpdateTask(task.id, updates)
-      loadData()
     }
   }
 
@@ -1391,7 +1422,6 @@ export const App: React.FC = () => {
       const updatedTasks = tasks.map((t) => (t.id === task.id ? { ...t, ...updates } : t))
       setTasks(updatedTasks)
       cloudUpdateTask(task.id, updates)
-      loadData()
     }
   }
 
@@ -1405,7 +1435,6 @@ export const App: React.FC = () => {
       const updatedTasks = tasks.filter((t) => t.id !== id)
       setTasks(updatedTasks)
       cloudDeleteTask(id)
-      loadData()
     }
   }
 
@@ -1427,7 +1456,6 @@ export const App: React.FC = () => {
             cloudAddTask(newTask)
           }
         }
-        await loadData()
       }
     } catch (err) {
       console.error('Save task error:', err)

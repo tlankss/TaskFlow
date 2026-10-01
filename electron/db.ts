@@ -75,6 +75,12 @@ interface DatabaseSchema {
     workStartTime: string
     menuBarTimerEnabled: boolean
   }
+  auth?: {
+    supabaseUrl?: string
+    supabaseKey?: string
+    supabaseSession?: any
+    lastSavedAt?: string
+  }
 }
 
 class StorageDB {
@@ -280,6 +286,26 @@ class StorageDB {
     this.data.settings = { ...this.data.settings, ...settings }
     this.saveData(this.data)
     return this.data.settings
+  }
+
+  public getAuthData(): NonNullable<DatabaseSchema['auth']> {
+    return this.data.auth || {}
+  }
+
+  public saveAuthData(authData: { supabaseUrl?: string; supabaseKey?: string; supabaseSession?: any }): boolean {
+    this.data.auth = {
+      ...(this.data.auth || {}),
+      ...authData,
+      lastSavedAt: new Date().toISOString(),
+    }
+    this.saveData(this.data)
+    return true
+  }
+
+  public clearAuthData(): boolean {
+    this.data.auth = undefined
+    this.saveData(this.data)
+    return true
   }
 }
 

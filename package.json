@@ -10,10 +10,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "build:mac": "npm run build && electron-builder --mac",
-    "build:mac:arm": "npm run build && electron-builder --mac --arm64",
-    "build:mac:intel": "npm run build && electron-builder --mac --x64",
-    "build:mac:universal": "npm run build && electron-builder --mac --universal"
+    "build:mac": "npm run build && ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-builder --mac",
+    "build:mac:arm": "npm run build && ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-builder --mac --arm64",
+    "build:mac:intel": "npm run build && ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-builder --mac --x64",
+    "build:mac:universal": "npm run build && ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-builder --mac --universal",
+    "build:win": "npm run build && ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-builder --win --x64"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
@@ -75,6 +76,20 @@
           "path": "/Applications"
         }
       ]
+    },
+    "win": {
+      "icon": "public/icon.png",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TaskFlow"
     }
   }
 }

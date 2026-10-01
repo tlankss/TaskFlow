@@ -180,6 +180,9 @@ declare global {
       updateTrayTitle: (title: string) => void
       openDevTools?: () => Promise<void>
       onToggleCommandPalette?: (callback: () => void) => () => void
+      getAuthData?: () => Promise<{ supabaseUrl?: string; supabaseKey?: string; supabaseSession?: any; lastSavedAt?: string }>
+      saveAuthData?: (authData: { supabaseUrl?: string; supabaseKey?: string; supabaseSession?: any }) => Promise<boolean>
+      clearAuthData?: () => Promise<boolean>
     }
   }
 }

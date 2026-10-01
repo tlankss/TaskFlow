@@ -246,6 +246,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     const cleanKey = supabaseKey.trim()
     localStorage.setItem('taskflow_supabase_url', cleanUrl)
     localStorage.setItem('taskflow_supabase_key', cleanKey)
+    if (window.electronAPI?.saveAuthData) {
+      window.electronAPI.saveAuthData({ supabaseUrl: cleanUrl, supabaseKey: cleanKey })
+    }
     setSupabaseUrl(cleanUrl)
     setSupabaseKey(cleanKey)
     setShowConfig(false)

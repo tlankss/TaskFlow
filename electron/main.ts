@@ -14,6 +14,11 @@ process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(__dirnam
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
+let isQuitting = false
+
+app.on('before-quit', () => {
+  isQuitting = true
+})
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
@@ -102,6 +107,14 @@ function createWindow() {
     }
   })
 
+  // Mac 平台特有优化：点击窗口红叉关闭时隐藏窗口，不彻底销毁，保证顶部任务栏小图标随时秒开
+  win.on('close', (event) => {
+    if (!isQuitting && process.platform === 'darwin') {
+      event.preventDefault()
+      win?.hide()
+    }
+  })
+
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
@@ -111,22 +124,64 @@ function createWindow() {
 
 function createTray() {
   const iconPath = process.env.VITE_PUBLIC ? path.join(process.env.VITE_PUBLIC, 'icon.png') : ''
-  const icon = fs.existsSync(iconPath)
-    ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
-    : nativeImage.createFromDataURL(
-        'data:image/png;base64,iVBORw0KGgoAAAANSU5=================='
-      )
+  let icon: Electron.NativeImage
+  if (iconPath && fs.existsSync(iconPath)) {
+    icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 })
+  } else {
+    icon = nativeImage.createEmpty()
+  }
+
   try {
     tray = new Tray(icon)
     const contextMenu = Menu.buildFromTemplate([
-      { label: '打开 TaskFlow', click: () => win?.show() },
-      { label: '开始今天规划', click: () => win?.webContents.send('action:planToday') },
+      {
+        label: '打开 TaskFlow',
+        click: () => {
+          if (!win || win.isDestroyed()) {
+            createWindow()
+          } else {
+            win.show()
+            win.focus()
+          }
+        },
+      },
+      {
+        label: '开始今天规划',
+        click: () => {
+          if (!win || win.isDestroyed()) {
+            createWindow()
+          } else {
+            win.show()
+            win.focus()
+          }
+          win?.webContents.send('action:planToday')
+        },
+      },
       { type: 'separator' },
-      { label: '退出 TaskFlow', click: () => app.quit() },
+      {
+        label: '退出 TaskFlow',
+        click: () => {
+          isQuitting = true
+          app.quit()
+        },
+      },
     ])
+
     tray.setToolTip('TaskFlow 待办清单与专注监督')
     tray.setContextMenu(contextMenu)
     tray.setTitle(' TaskFlow')
+
+    // Mac 状态栏托盘：点击直接切换显示/隐藏窗口
+    tray.on('click', () => {
+      if (!win || win.isDestroyed()) {
+        createWindow()
+      } else if (win.isVisible() && win.isFocused()) {
+        win.hide()
+      } else {
+        win.show()
+        win.focus()
+      }
+    })
   } catch (e) {
     console.log('Tray icon creation fallback:', e)
   }
@@ -220,8 +275,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (BrowserWindow.getAllWindows().length === 0 || !win || win.isDestroyed()) {
     createWindow()
+  } else {
+    win.show()
+    win.focus()
   }
 })
 
@@ -268,6 +326,11 @@ app.whenReady().then(() => {
   ipcMain.handle('db:getUserProfile', () => db.getUserProfile())
   ipcMain.handle('db:updateUserProfile', (_, profile) => db.updateUserProfile(profile))
   ipcMain.handle('db:getUserStats', () => db.getUserStats())
+
+  // Persistent Auth Data Handlers (跨版本、永不掉登录)
+  ipcMain.handle('db:getAuthData', () => db.getAuthData())
+  ipcMain.handle('db:saveAuthData', (_, authData) => db.saveAuthData(authData))
+  ipcMain.handle('db:clearAuthData', () => db.clearAuthData())
 
   // AI Weekly Report generator (Inject User Role Title into System Prompt)
   ipcMain.handle('ai:generateWeeklyReport', async (_, { apiKey, baseUrl, model, tasks, userRole }) => {

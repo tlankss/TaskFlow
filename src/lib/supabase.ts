@@ -4,23 +4,9 @@ import { generateRequestId, API_PROTOCOL_VERSION, sanitizeReadingMeta } from './
 
 export * from './api'
 
-// 自定义 Fetch 拦截器：注入 REST 标准协议请求头，并将每一个发往 Supabase 的 REST / Auth 请求打印至控制台
-function loggingFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-  const method = init?.method || 'GET'
-  let parsedBody: any = null
-  if (init?.body && typeof init.body === 'string') {
-    try {
-      parsedBody = JSON.parse(init.body)
-    } catch {
-      parsedBody = init.body
-    }
-  }
-
-  // 注入符合企业级 REST 协议规范的标准化 Request Headers
-  const traceId = generateRequestId()
+// 优化 Fetch 拦截器：按需注入标准协议请求头，并在 401 JWT 过期时自动静默刷新 Token 并重试
+async function optimizedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const customHeaders: Record<string, string> = {
-    'X-Request-Id': traceId,
     'X-Api-Version': API_PROTOCOL_VERSION,
     'X-Client-Platform': typeof window !== 'undefined' && (window as any).electronAPI ? 'electron-desktop' : 'web',
   }
@@ -37,58 +23,84 @@ function loggingFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
     headers: modifiedHeaders,
   }
 
-  const startTime = Date.now()
-  console.groupCollapsed(`%c🌐 [Supabase REST 请求 ${traceId}] ${method} ${url}`, 'color: #07C160; font-weight: bold;')
-  console.log('请求 URL:', url)
-  console.log('请求方式:', method)
-  console.log('链路追踪 (Trace ID):', traceId)
-  if (parsedBody) console.log('请求参数 (Body):', parsedBody)
-  console.log('请求头 (Headers):', Object.fromEntries(modifiedHeaders.entries()))
-  console.groupEnd()
+  try {
+    const response = await window.fetch(input, modifiedInit)
 
-  return window.fetch(input, modifiedInit).then(async (response) => {
-    const duration = Date.now() - startTime
-    const isOk = response.ok
-    const statusColor = isOk ? '#07C160' : '#ef4444'
-
-    // 克隆响应流以便读取 JSON 数据，不影响原返回流
-    const cloned = response.clone()
-    let responseData: any = null
-    try {
-      responseData = await cloned.json()
-    } catch {
-      try {
-        responseData = await cloned.text()
-      } catch {
-        responseData = '(无法解析或空响应)'
+    // 针对 401 Unauthorized (JWT 过期) 自动静默尝试续期并无感重试 1 次
+    if (response.status === 401 && !((init as any)?._isAuthRetry)) {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      // 避免自身 auth 登录接口无限死循环
+      if (!url.includes('/auth/v1/token') && !url.includes('/auth/v1/logout')) {
+        const client = getSupabaseClient()
+        if (client) {
+          console.warn('[Supabase 401] 捕获凭据过期，正在尝试静默刷新会话...')
+          const { data, error } = await client.auth.refreshSession()
+          if (data?.session?.access_token && !error) {
+            console.log('[Supabase 401] 会话刷新成功，正在无缝重试原请求...')
+            if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAuthData) {
+              ;(window as any).electronAPI.saveAuthData({
+                supabaseUrl: cachedUrl,
+                supabaseKey: cachedKey,
+                supabaseSession: data.session,
+              }).catch(() => {})
+            }
+            const retryHeaders = new Headers(modifiedInit.headers)
+            retryHeaders.set('Authorization', `Bearer ${data.session.access_token}`)
+            return window.fetch(input, {
+              ...modifiedInit,
+              headers: retryHeaders,
+              _isAuthRetry: true,
+            } as any)
+          }
+        }
       }
     }
 
-    console.groupCollapsed(
-      `%c📥 [Supabase HTTP 响应 ${response.status}] ${method} ${url} (${duration}ms)`,
-      `color: ${statusColor}; font-weight: bold;`
-    )
-    console.log('状态码:', response.status, response.statusText)
-    console.log('返回数据 (Payload):', responseData)
-    if (!isOk) {
-      console.warn('⚠️ 错误详情 (Error Detail):', responseData)
-    }
-    console.groupEnd()
-
     return response
-  }).catch((err) => {
-    console.error(`%c❌ [Supabase 网络故障] ${method} ${url}`, 'color: #ef4444; font-weight: bold;', err)
+  } catch (err) {
+    console.error('[Supabase Network Error]', err)
     throw err
-  })
+  }
 }
 
 let cachedClient: any = null
 let cachedUrl = ''
 let cachedKey = ''
 
+// 内存级 Auth 用户缓存 (60 秒生命周期，杜绝每个 API 调用反复发起网络探测)
+let cachedAuthUser: User | null = null
+let authUserFetchedAt = 0
+const AUTH_CACHE_TTL = 60 * 1000
+
+export function setCachedAuthUser(user: User | null) {
+  cachedAuthUser = user
+  authUserFetchedAt = Date.now()
+}
+
+export function clearCachedAuthUser() {
+  cachedAuthUser = null
+  authUserFetchedAt = 0
+}
+
 export function getSupabaseClient() {
-  const url = localStorage.getItem('taskflow_supabase_url') || import.meta.env.VITE_SUPABASE_URL || ''
-  const key = localStorage.getItem('taskflow_supabase_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+  // 自动从旧版 storage key 迁移已登录会话，防止更新后掉登录
+  try {
+    if (typeof localStorage !== 'undefined' && !localStorage.getItem('taskflow_auth_token')) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+          const val = localStorage.getItem(k)
+          if (val) {
+            localStorage.setItem('taskflow_auth_token', val)
+            break
+          }
+        }
+      }
+    }
+  } catch {}
+
+  const url = (typeof localStorage !== 'undefined' ? localStorage.getItem('taskflow_supabase_url') : '') || import.meta.env.VITE_SUPABASE_URL || ''
+  const key = (typeof localStorage !== 'undefined' ? localStorage.getItem('taskflow_supabase_key') : '') || import.meta.env.VITE_SUPABASE_ANON_KEY || ''
   if (!url || !key || url.includes('your-project-ref')) {
     return null
   }
@@ -97,7 +109,36 @@ export function getSupabaseClient() {
   }
   cachedUrl = url
   cachedKey = key
-  cachedClient = createClient(url, key, { global: { fetch: loggingFetch } })
+  cachedClient = createClient(url, key, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      storageKey: 'taskflow_auth_token',
+    },
+    global: { fetch: optimizedFetch },
+  })
+
+  // 监听会话变更，一旦用户登录/登出/续期即时更新内存缓存，并双向备份至 Native 本地文件（防更新丢失）
+  cachedClient.auth.onAuthStateChange((event: any, session: any) => {
+    cachedAuthUser = session?.user ?? null
+    authUserFetchedAt = Date.now()
+
+    if (session) {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAuthData) {
+        ;(window as any).electronAPI.saveAuthData({
+          supabaseUrl: cachedUrl,
+          supabaseKey: cachedKey,
+          supabaseSession: session,
+        }).catch(() => {})
+      }
+    } else if (event === 'SIGNED_OUT') {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.clearAuthData) {
+        ;(window as any).electronAPI.clearAuthData().catch(() => {})
+      }
+    }
+  })
+
   return cachedClient
 }
 
@@ -106,8 +147,88 @@ export const supabase =
   createClient(
     'https://placeholder.supabase.co',
     'placeholder',
-    { global: { fetch: loggingFetch } }
+    { global: { fetch: optimizedFetch } }
   )
+
+/**
+ * 跨版本登录态自动对账与恢复引擎：
+ * 1. 即使 Mac 更新版本重新安装 / 覆盖 App，也会从 Native 本地文件 (~/Library/Application Support/TaskFlow) 自动恢复 URL、Key 与 Session
+ * 2. 自动检查 Token 有效期，提前静默续期，杜绝“经常需要重新登录”
+ */
+export async function restoreAuthSessionIfAvailable(): Promise<boolean> {
+  // 1. 如果在 Electron 环境中，优先从 Native 本地文件恢复 URL, Key 和 Session
+  if (typeof window !== 'undefined' && (window as any).electronAPI?.getAuthData) {
+    try {
+      const authData = await (window as any).electronAPI.getAuthData()
+      if (authData) {
+        if (authData.supabaseUrl && !localStorage.getItem('taskflow_supabase_url')) {
+          localStorage.setItem('taskflow_supabase_url', authData.supabaseUrl)
+        }
+        if (authData.supabaseKey && !localStorage.getItem('taskflow_supabase_key')) {
+          localStorage.setItem('taskflow_supabase_key', authData.supabaseKey)
+        }
+
+        const client = getSupabaseClient()
+        if (client && authData.supabaseSession) {
+          const { data: { session: localSession } } = await client.auth.getSession()
+          if (!localSession && authData.supabaseSession.access_token && authData.supabaseSession.refresh_token) {
+            console.log('[Auth Restore] 发现新安装/更新版本后丢失网页会话，已成功从 Native 持久化文件中无感恢复登录！')
+            await client.auth.setSession({
+              access_token: authData.supabaseSession.access_token,
+              refresh_token: authData.supabaseSession.refresh_token,
+            })
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth Restore Warning]', e)
+    }
+  }
+
+  // 2. 检查会话并执行静默续期
+  await ensureFreshSession()
+  return true
+}
+
+/**
+ * 确保当前 Session 处于有效状态，若快过期（或已过期）则静默刷新
+ */
+export async function ensureFreshSession(): Promise<boolean> {
+  const client = getSupabaseClient()
+  if (!client) return false
+
+  try {
+    const { data: { session } } = await client.auth.getSession()
+    if (!session) return false
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    // 如果 token 已过期，或将在 5 分钟 (300秒) 内过期，主动执行静默续期
+    if (session.expires_at && session.expires_at - nowSec < 300) {
+      console.log('[Auth] Token 临近过期或已过期，执行静默刷新...')
+      const { data, error } = await client.auth.refreshSession()
+      if (data?.session) {
+        console.log('[Auth] Token 静默刷新成功！')
+        cachedAuthUser = data.session.user
+        authUserFetchedAt = Date.now()
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAuthData) {
+          ;(window as any).electronAPI.saveAuthData({
+            supabaseUrl: cachedUrl,
+            supabaseKey: cachedKey,
+            supabaseSession: data.session,
+          }).catch(() => {})
+        }
+        return true
+      }
+      if (error) {
+        console.warn('[Auth] 静默刷新失败:', error)
+      }
+    }
+    return true
+  } catch (e) {
+    console.warn('[Auth] ensureFreshSession 出错:', e)
+    return false
+  }
+}
 
 /**
  * 将 Supabase 英文报错转换为地道友好的中文提示
@@ -161,6 +282,13 @@ export async function signUpWithEmail(email: string, password: string, name?: st
     },
   })
   if (error) throw error
+  if (data?.session && typeof window !== 'undefined' && (window as any).electronAPI?.saveAuthData) {
+    ;(window as any).electronAPI.saveAuthData({
+      supabaseUrl: cachedUrl,
+      supabaseKey: cachedKey,
+      supabaseSession: data.session,
+    }).catch(() => {})
+  }
   return data
 }
 
@@ -176,6 +304,16 @@ export async function signInWithEmail(email: string, password: string) {
     password,
   })
   if (error) throw error
+  if (data?.user) {
+    setCachedAuthUser(data.user)
+  }
+  if (data?.session && typeof window !== 'undefined' && (window as any).electronAPI?.saveAuthData) {
+    ;(window as any).electronAPI.saveAuthData({
+      supabaseUrl: cachedUrl,
+      supabaseKey: cachedKey,
+      supabaseSession: data.session,
+    }).catch(() => {})
+  }
   return data
 }
 
@@ -183,20 +321,42 @@ export async function signInWithEmail(email: string, password: string) {
  * 退出登录
  */
 export async function signOut() {
+  clearCachedAuthUser()
   const client = getSupabaseClient()
   if (client) {
     await client.auth.signOut()
   }
+  if (typeof window !== 'undefined' && (window as any).electronAPI?.clearAuthData) {
+    await (window as any).electronAPI.clearAuthData().catch(() => {})
+  }
 }
 
 /**
- * 极速获取当前用户 (优先读取客户端本地 Session，0 网络开销)
+ * 极速获取当前用户 (优先读取客户端内存/本地 Session，0 网络开销)
  */
 async function getAuthUser(client: any): Promise<User | null> {
+  if (cachedAuthUser && Date.now() - authUserFetchedAt < AUTH_CACHE_TTL) {
+    return cachedAuthUser
+  }
   try {
     const { data: { session } } = await client.auth.getSession()
-    if (session?.user) return session.user
+    if (session?.user) {
+      const nowSec = Math.floor(Date.now() / 1000)
+      if (session.expires_at && session.expires_at - nowSec <= 0) {
+        const { data: refreshData } = await client.auth.refreshSession()
+        if (refreshData?.session?.user) {
+          cachedAuthUser = refreshData.session.user
+          authUserFetchedAt = Date.now()
+          return refreshData.session.user
+        }
+      }
+      setCachedAuthUser(session.user)
+      return session.user
+    }
     const { data: { user } } = await client.auth.getUser()
+    if (user) {
+      setCachedAuthUser(user)
+    }
     return user
   } catch {
     return null
@@ -204,9 +364,12 @@ async function getAuthUser(client: any): Promise<User | null> {
 }
 
 /**
- * 获取当前登录用户 (优先从客户端本地 Session 瞬时读取，杜绝多余 HTTP 请求)
+ * 获取当前登录用户 (优先从内存/客户端本地 Session 瞬时读取，杜绝多余 HTTP 请求)
  */
 export async function getCurrentUser(): Promise<User | null> {
+  if (cachedAuthUser && Date.now() - authUserFetchedAt < AUTH_CACHE_TTL) {
+    return cachedAuthUser
+  }
   const client = getSupabaseClient()
   if (!client) return null
   return getAuthUser(client)
