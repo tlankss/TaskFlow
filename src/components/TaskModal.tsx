@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { X, Calendar, Clock, Inbox, Sun, Folder, Plus, Trash2, Check, ListTodo, MessageSquare, Sparkles, Loader2, Settings } from 'lucide-react'
 import { Task, Project, SubTask } from '../types'
 import { DurationPicker, formatDuration } from './DurationPicker'
@@ -28,6 +28,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   onOpenAISettings,
 }) => {
   const [title, setTitle] = useState('')
+  const [titleError, setTitleError] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
   const [notes, setNotes] = useState('')
   const [priority, setPriority] = useState<Task['priority']>('p2')
   const [projectId, setProjectId] = useState(defaultProjectId)
@@ -55,6 +57,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const nextMondayStr = nextMonObj.toISOString().split('T')[0]
 
   useEffect(() => {
+    setTitleError(false)
     if (editingTask) {
       setTitle(editingTask.title)
       setNotes(editingTask.notes || '')
@@ -248,7 +251,12 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const finalTitle = title.trim() || '未命名新任务'
+    const finalTitle = title.trim()
+    if (!finalTitle) {
+      setTitleError(true)
+      titleInputRef.current?.focus()
+      return
+    }
 
     const isToday = targetLocation === 'today'
     const finalDueDate = targetLocation === 'date' ? dueDate : todayStr
@@ -299,13 +307,34 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
           <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
+                <span>任务名称 / 目标</span>
+                <span className="text-red-500 font-bold">*</span>
+              </label>
+              {titleError && (
+                <span className="text-xs text-red-500 font-medium flex items-center space-x-1 animate-in fade-in slide-in-from-right-1">
+                  <span>⚠️ 请输入任务名称 (必填项)</span>
+                </span>
+              )}
+            </div>
             <input
+              ref={titleInputRef}
               type="text"
               placeholder="想做点什么？(例如: 上线个人软件项目)"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value)
+                if (titleError && e.target.value.trim()) {
+                  setTitleError(false)
+                }
+              }}
               autoFocus
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700/60 focus:border-[#07C160] text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-colors"
+              className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 border text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-all ${
+                titleError
+                  ? 'border-red-500 ring-2 ring-red-500/20 dark:border-red-500'
+                  : 'border-slate-200 dark:border-slate-700/60 focus:border-[#07C160] focus:ring-2 focus:ring-[#07C160]/20'
+              }`}
             />
           </div>
 
