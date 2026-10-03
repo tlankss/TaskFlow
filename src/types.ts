@@ -199,5 +199,6 @@ export interface ParsedTaskItem {
   due_date: string
   is_today?: boolean
   selected?: boolean
+  engine?: 'ai' | 'local'
   subtasks?: { id?: string; title: string; estimated_minutes?: number }[]
 }

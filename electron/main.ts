@@ -667,6 +667,7 @@ ${
             project_id: defaultProjectId,
             estimated_minutes: aerobicMins,
             notes: line,
+            engine: 'local',
             subtasks: [
               { title: '热身活动与心率提升 5分钟', estimated_minutes: 5 },
               { title: aerobicDesc, estimated_minutes: Math.max(10, aerobicMins - 5) },
@@ -680,6 +681,7 @@ ${
             project_id: defaultProjectId,
             estimated_minutes: activateMins,
             notes: line,
+            engine: 'local',
             subtasks: [
               { title: activateDesc, estimated_minutes: activateMins },
             ],
@@ -692,6 +694,7 @@ ${
             project_id: defaultProjectId,
             estimated_minutes: activateMins,
             notes: line,
+            engine: 'local',
             subtasks: [
               { title: activateDesc, estimated_minutes: activateMins },
             ],
@@ -753,6 +756,7 @@ ${
             project_id: defaultProjectId,
             estimated_minutes: totalMins,
             notes: detailsText,
+            engine: 'local',
             subtasks,
           })
           continue
@@ -778,6 +782,7 @@ ${
           project_id: defaultProjectId,
           estimated_minutes: 30,
           notes: line.length > 60 ? line : '',
+          engine: 'local',
           subtasks: [],
         })
       }
@@ -874,6 +879,7 @@ ${
               project_id: item.project_id || defaultProjectId,
               estimated_minutes: Number(item.estimated_minutes) || 30,
               notes: item.notes || '',
+              engine: 'ai',
               subtasks: Array.isArray(item.subtasks)
                 ? item.subtasks.map((st: any) => ({
                     title: String(st.title || st.name || '').trim(),

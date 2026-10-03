@@ -16,6 +16,14 @@ import {
   Dumbbell,
   Laptop,
   BookOpen,
+  Settings,
+  Bot,
+  Zap,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { Project, Task, ParsedTaskItem, SubTask } from '../types'
@@ -28,11 +36,51 @@ interface SmartBreakdownModalProps {
   onBatchAddTasks: (tasks: Partial<Task>[]) => Promise<void>
 }
 
+// 预设大模型服务商配置
+const AI_PRESETS = [
+  {
+    name: 'DeepSeek (推荐)',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    docUrl: 'https://platform.deepseek.com/api_keys',
+  },
+  {
+    name: '通义千问 (阿里)',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+    docUrl: 'https://bailian.console.aliyun.com/',
+  },
+  {
+    name: '月之暗面 (Kimi)',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    model: 'moonshot-v1-8k',
+    docUrl: 'https://platform.moonshot.cn/console/api-keys',
+  },
+  {
+    name: 'OpenAI 官方/中转',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+    docUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    name: '本地 Ollama (免Key)',
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'qwen2.5:7b',
+    docUrl: 'https://ollama.com/',
+  },
+]
+
 // 预设优秀范例文本，方便用户一键体验
 const PRESET_EXAMPLES = [
   {
     icon: Dumbbell,
-    name: '居家哑铃健身周计划',
+    name: '居家自重燃脂塑形计划',
+    content: `那就纯无器械，主打自重燃脂加线条雕刻，刚好适配你要的穿衣显瘦脱衣有轮廓。周一胸：标准俯卧撑4组×15次，窄距俯卧撑3组×12次，跪姿夹胸俯卧撑3组×18次，接30分钟原地高抬腿。周三背：桌沿反屈伸4组×15次，超人式伸展4组×20次，俯身Y字抬背3组×18次，卷腹3组×20次，接25分钟跳绳或原地跑。周五肩腹：靠墙静推4组×45秒，侧平举自重空臂训练4组×25次，俄罗斯转体3组×30次，接15分钟波比跳间歇。周二周四周六选一天做40分钟快走或慢跑，剩下两天做15分钟全身激活，周日休息。全程不用任何器材，靠自重多次数压体脂，肩胸背的薄线条很快能出来。`,
+    defaultProject: 'personal',
+  },
+  {
+    icon: Dumbbell,
+    name: '居家哑铃增肌周计划',
     content: `那就改成纯居家哑铃版，不用健身房器械，按一周6练1休来，直接能记进表。
 周一胸：热身5分钟开合跳，哑铃平板卧推4组×12次，上斜哑铃卧推用枕头垫背4组×12次，哑铃臂屈伸3组×10次，最后原地高抬腿30分钟。
 周三背：哑铃单臂划船左右各4组×12次，俯身哑铃划船4组×12次，哑铃耸肩3组×15次，平板支撑3组×60秒。
@@ -78,7 +126,62 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
 
+  // AI 大模型配置状态
+  const [showAiConfig, setShowAiConfig] = useState(false)
+  const [aiKey, setAiKey] = useState(localStorage.getItem('taskflow_ai_key') || '')
+  const [aiBaseUrl, setAiBaseUrl] = useState(
+    localStorage.getItem('taskflow_ai_base_url') || 'https://api.deepseek.com/v1'
+  )
+  const [aiModel, setAiModel] = useState(
+    localStorage.getItem('taskflow_ai_model') || 'deepseek-chat'
+  )
+  const [showAiKeyVisible, setShowAiKeyVisible] = useState(false)
+  const [isTestingAi, setIsTestingAi] = useState(false)
+  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; latency?: number; message: string } | null>(null)
+  const [aiSavedSuccess, setAiSavedSuccess] = useState(false)
+
   if (!isOpen) return null
+
+  // 测试 AI 连接
+  const handleTestConnection = async () => {
+    if (!aiKey.trim()) {
+      setAiTestResult({ success: false, message: '请先填写 API Key 密钥' })
+      return
+    }
+    setIsTestingAi(true)
+    setAiTestResult(null)
+    try {
+      if (window.electronAPI?.testAIConnection) {
+        const res = await window.electronAPI.testAIConnection({
+          apiKey: aiKey.trim(),
+          baseUrl: aiBaseUrl.trim() || 'https://api.deepseek.com/v1',
+          model: aiModel.trim() || 'deepseek-chat',
+        })
+        if (res.success) {
+          setAiTestResult({
+            success: true,
+            latency: res.latency,
+            message: `连接测试通过！响应延迟: ${res.latency}ms`,
+          })
+        } else {
+          setAiTestResult({ success: false, message: res.error || '连接失败，请检查 Key 或网络' })
+        }
+      }
+    } catch (err: any) {
+      setAiTestResult({ success: false, message: err.message || '网络连接测试异常' })
+    } finally {
+      setIsTestingAi(false)
+    }
+  }
+
+  // 保存 AI 模型配置
+  const handleSaveAiConfig = () => {
+    localStorage.setItem('taskflow_ai_key', aiKey.trim())
+    localStorage.setItem('taskflow_ai_base_url', aiBaseUrl.trim())
+    localStorage.setItem('taskflow_ai_model', aiModel.trim())
+    setAiSavedSuccess(true)
+    setTimeout(() => setAiSavedSuccess(false), 2500)
+  }
 
   // 执行智能拆解
   const handleParse = async () => {
@@ -87,9 +190,9 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
     setIsParsing(true)
 
     try {
-      const apiKey = localStorage.getItem('taskflow_ai_key') || ''
-      const baseUrl = localStorage.getItem('taskflow_ai_base_url') || ''
-      const model = localStorage.getItem('taskflow_ai_model') || ''
+      const effectiveKey = aiKey.trim() || localStorage.getItem('taskflow_ai_key') || ''
+      const effectiveBaseUrl = aiBaseUrl.trim() || localStorage.getItem('taskflow_ai_base_url') || ''
+      const effectiveModel = aiModel.trim() || localStorage.getItem('taskflow_ai_model') || ''
 
       let result: ParsedTaskItem[] = []
 
@@ -98,9 +201,9 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
           text: trimmed,
           baseWeek,
           defaultProjectId: selectedProjectId,
-          apiKey,
-          baseUrl,
-          model,
+          apiKey: effectiveKey,
+          baseUrl: effectiveBaseUrl,
+          model: effectiveModel,
         })
       }
 
@@ -245,6 +348,180 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
             </div>
           </div>
 
+          {/* Driver Engine Status & AI Config Toggle */}
+          <div className="flex items-center justify-between px-1 text-xs">
+            <div className="flex items-center space-x-2">
+              <span className="text-slate-400 font-medium">驱动模式:</span>
+              {aiKey.trim() ? (
+                <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-500/20">
+                  <Bot className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                  <span>AI 大模型深度语义解析 ({aiModel || 'DeepSeek'})</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium border border-blue-500/20">
+                  <Zap className="w-3.5 h-3.5 text-blue-500" />
+                  <span>本地启发式规则引擎 (离线·免Key·极速)</span>
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAiConfig(!showAiConfig)}
+              className="flex items-center space-x-1 text-slate-500 hover:text-[#07C160] dark:text-slate-400 dark:hover:text-[#07C160] font-medium transition-colors cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>{showAiConfig ? '收起 AI 设置' : '接入/配置 AI 大模型'}</span>
+              {showAiConfig ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          {/* Collapsible AI Configuration Panel */}
+          {showAiConfig && (
+            <div className="p-3.5 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-3 animate-in fade-in slide-in-from-top-2 duration-150 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <Bot className="w-4 h-4 text-[#07C160]" />
+                  <span>选择或切换 AI 模型服务商</span>
+                </span>
+                <span className="text-[11px] text-slate-400">配置保存在本地，全软件生效</span>
+              </div>
+
+              {/* Presets */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {AI_PRESETS.map((p) => {
+                  const isSelected = aiBaseUrl === p.baseUrl && aiModel === p.model
+                  return (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => {
+                        setAiBaseUrl(p.baseUrl)
+                        setAiModel(p.model)
+                        setAiTestResult(null)
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#07C160]/15 text-[#07C160] border-[#07C160]/40 font-semibold'
+                          : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      {p.name}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* API Key */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-slate-500 font-medium">API Key 密钥</label>
+                  {aiBaseUrl.includes('deepseek') && (
+                    <a
+                      href="https://platform.deepseek.com/api_keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-[#07C160] hover:underline flex items-center space-x-0.5"
+                    >
+                      <span>获取 DeepSeek Key</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+                <div className="relative flex items-center">
+                  <input
+                    type={showAiKeyVisible ? 'text' : 'password'}
+                    value={aiKey}
+                    onChange={(e) => {
+                      setAiKey(e.target.value)
+                      setAiTestResult(null)
+                    }}
+                    placeholder="粘贴大模型 API Key (如 sk-...，本地 Ollama 可不填)"
+                    className="w-full px-3 py-1.5 pr-8 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#07C160]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAiKeyVisible(!showAiKeyVisible)}
+                    className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    {showAiKeyVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Base URL & Model */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-500 font-medium">Base URL 接口地址</label>
+                  <input
+                    type="text"
+                    value={aiBaseUrl}
+                    onChange={(e) => setAiBaseUrl(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-500 font-medium">模型名称 (Model)</label>
+                  <input
+                    type="text"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Test Connection Feedback */}
+              {aiTestResult && (
+                <div
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs ${
+                    aiTestResult.success
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                      : 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
+                  }`}
+                >
+                  {aiTestResult.success ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>{aiTestResult.message}</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-slate-400">
+                  {aiKey.trim() ? '已配置 Key，拆解时将启用 AI' : '未配置 Key，拆解时将使用本地离线规则'}
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTestingAi}
+                    className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 font-medium transition-colors cursor-pointer"
+                  >
+                    {isTestingAi ? '连通性测试中...' : '测试连通性'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveAiConfig}
+                    className="px-3.5 py-1 rounded-lg bg-[#07C160] hover:bg-[#06ae56] text-white font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+                  >
+                    {aiSavedSuccess ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>已保存配置</span>
+                      </>
+                    ) : (
+                      <span>保存配置</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Text Input Area */}
           <div className="relative">
             <textarea
@@ -372,6 +649,19 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
                           <Calendar className="w-3 h-3 text-[#07C160]" />
                           <span>{item.due_date}</span>
                         </div>
+
+                        {/* Engine tag */}
+                        {item.engine === 'ai' ? (
+                          <div className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-medium shrink-0">
+                            <Bot className="w-3 h-3 text-emerald-500" />
+                            <span>AI拆解</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-medium shrink-0">
+                            <Zap className="w-3 h-3 text-blue-500" />
+                            <span>规则拆解</span>
+                          </div>
+                        )}
 
                         {/* Title Input (Editable) */}
                         <input
