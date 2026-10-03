@@ -1951,6 +1951,11 @@ export const App: React.FC = () => {
         onClose={() => setIsSmartBreakdownOpen(false)}
         projects={projects}
         onBatchAddTasks={handleBatchAddTasks}
+        onOpenSettings={() => {
+          setIsSmartBreakdownOpen(false)
+          setUserProfileTab('ai')
+          setIsUserProfileModalOpen(true)
+        }}
       />
 
       <AIReportModal
