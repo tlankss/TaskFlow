@@ -610,7 +610,13 @@ ${
       '星期天': { offset: 6, name: '周日' },
     }
 
-    const rawLines = text
+    // 智能切分多行文本：先对未换行的连贯周计划长文按“周X/星期X”断句，确保每一天能成为独立的一行
+    const normalizedText = text
+      .replace(/(?<=[。；;！？!\n\r]|^)\s*(?=(?:周[一二三四五六日天]|星期[一二三四五六日天]|礼拜[一二三四五六日天]))/g, '\n')
+      .replace(/(?<=[^\n])(?=(?:周[一二三四五六日天]|星期[一二三四五六日天]|礼拜[一二三四五六日天])[\u4e00-\u9fa5]{0,6}[:：])/g, '\n')
+      .replace(/(?<=[。；;！？!\s])\s*(?=(?:周[一二三四五六日天][、\/和与及]?)+选一天)/g, '\n')
+
+    const rawLines = normalizedText
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0)
@@ -623,47 +629,71 @@ ${
 
     if (hasWeekdayMarkers) {
       for (const line of rawLines) {
-        if (line.includes('周二、四、六') || line.includes('二、四、六') || (line.includes('周') && line.includes('选一天'))) {
+        if (line.includes('选一天') || line.includes('二、四、六') || line.includes('周二周四周六')) {
           const parts = line.split(/[，。；]/).map((p) => p.trim()).filter(Boolean)
-          const aerobicPart = parts.find((p) => p.includes('有氧') || p.includes('跳绳') || p.includes('跑')) || '跳绳或原地跑45分钟'
-          const activatePart = parts.find((p) => p.includes('激活') || p.includes('哑铃')) || '轻量哑铃激活与拉伸'
+
+          let aerobicDesc = ''
+          let aerobicMins = 40
+          const optPartIdx = parts.findIndex((p) => p.includes('选一天'))
+          if (optPartIdx !== -1) {
+            const optPart = parts[optPartIdx].replace(/^.*选一天(?:做)?/, '').trim()
+            if (optPartIdx + 1 < parts.length && !parts[optPartIdx + 1].includes('剩下') && !parts[optPartIdx + 1].includes('休息')) {
+              aerobicDesc = (optPart ? optPart + ' ' : '') + parts[optPartIdx + 1]
+            } else {
+              aerobicDesc = optPart
+            }
+          }
+          if (!aerobicDesc) {
+            aerobicDesc = parts.find((p) => /有氧|跳绳|跑|快走|慢跑/.test(p)) || '纯有氧训练'
+          }
+          const m1 = aerobicDesc.match(/(\d+)\s*分钟/) || line.match(/(\d+)\s*分钟(?:快走|慢跑|跳绳|跑|有氧)/)
+          if (m1) aerobicMins = parseInt(m1[1], 10)
+
+          let activateDesc = ''
+          let activateMins = 20
+          const remPart = parts.find((p) => /剩下|两天/.test(p) && /激活|哑铃|拉伸|自重/.test(p))
+          if (remPart) {
+            activateDesc = remPart.replace(/^.*(?:剩下两天|两天)(?:一天)?(?:做)?/, '').trim()
+          } else {
+            activateDesc = parts.find((p) => /激活|拉伸|恢复/.test(p)) || '全身激活与拉伸'
+          }
+          const m2 = activateDesc.match(/(\d+)\s*分钟/) || line.match(/(\d+)\s*分钟(?:全身激活|激活|拉伸|哑铃)/)
+          if (m2) activateMins = parseInt(m2[1], 10)
 
           parsedTasks.push({
-            title: '周二：纯有氧减脂训练 (跳绳/原地跑45分钟)',
+            title: `周二：${aerobicDesc.replace(/[，,]/g, ' ')}`,
             due_date: getWeekDate(1),
             priority: 'p2',
             project_id: defaultProjectId,
-            estimated_minutes: 45,
+            estimated_minutes: aerobicMins,
             notes: line,
             subtasks: [
-              { title: '热身拉伸 5分钟', estimated_minutes: 5 },
-              { title: aerobicPart, estimated_minutes: 40 },
+              { title: '热身活动与心率提升 5分钟', estimated_minutes: 5 },
+              { title: aerobicDesc, estimated_minutes: Math.max(10, aerobicMins - 5) },
             ],
           })
 
           parsedTasks.push({
-            title: '周四：轻量哑铃激活与核心训练',
+            title: `周四：${activateDesc}`,
             due_date: getWeekDate(3),
             priority: 'p2',
             project_id: defaultProjectId,
-            estimated_minutes: 30,
-            notes: '组间歇90秒，低重量多次数激活',
+            estimated_minutes: activateMins,
+            notes: line,
             subtasks: [
-              { title: activatePart, estimated_minutes: 20 },
-              { title: '核心拉伸放松 10分钟', estimated_minutes: 10 },
+              { title: activateDesc, estimated_minutes: activateMins },
             ],
           })
 
           parsedTasks.push({
-            title: '周六：全身轻量激活与耐力保持',
+            title: `周六：${activateDesc}`,
             due_date: getWeekDate(5),
             priority: 'p2',
             project_id: defaultProjectId,
-            estimated_minutes: 30,
-            notes: '状态好可补有氧，周日休息',
+            estimated_minutes: activateMins,
+            notes: line,
             subtasks: [
-              { title: activatePart, estimated_minutes: 20 },
-              { title: '全身拉伸筋膜放松 10分钟', estimated_minutes: 10 },
+              { title: activateDesc, estimated_minutes: activateMins },
             ],
           })
           continue
@@ -705,10 +735,11 @@ ${
 
           let totalMins = 0
           const subtasks = subItems.map((item) => {
-            const mins = parseDurationMinutes(item, 15)
+            const cleanTitle = item.replace(/^(?:接|然后|最后|再做)\s*/, '')
+            const mins = parseDurationMinutes(cleanTitle, 15)
             totalMins += mins
             return {
-              title: item,
+              title: cleanTitle,
               estimated_minutes: mins,
             }
           })
@@ -727,6 +758,10 @@ ${
           continue
         }
       }
+    }
+
+    if (parsedTasks.length > 0) {
+      parsedTasks.sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
     }
 
     if (parsedTasks.length === 0) {
