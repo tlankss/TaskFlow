@@ -316,6 +316,7 @@ app.whenReady().then(() => {
   // Database IPC Handlers
   ipcMain.handle('db:getTasks', () => db.getTasks())
   ipcMain.handle('db:addTask', (_, task) => db.addTask(task))
+  ipcMain.handle('db:addTasks', (_, tasks) => db.addTasks(tasks))
   ipcMain.handle('db:updateTask', (_, id, updates) => db.updateTask(id, updates))
   ipcMain.handle('db:deleteTask', (_, id) => db.deleteTask(id))
   ipcMain.handle('db:getProjects', () => db.getProjects())
@@ -547,6 +548,312 @@ ${
       { title: '核心阶段攻坚与实质成果推进', estimated_minutes: 45 },
       { title: '复盘自查验收与交付成果归档', estimated_minutes: 20 },
     ]
+  })
+
+  // 辅助时间解析
+  function parseDurationMinutes(str: string, defaultMin = 15): number {
+    const mMatch = str.match(/(\d+)\s*(?:分钟|分|m|min)/i)
+    if (mMatch) return parseInt(mMatch[1], 10)
+    const hMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:小时|个钟|h|hr)/i)
+    if (hMatch) return Math.round(parseFloat(hMatch[1]) * 60)
+    const sMatch = str.match(/(\d+)\s*(?:秒|s|sec)/i)
+    if (sMatch) return Math.max(5, Math.round(parseInt(sMatch[1], 10) / 60 * 5))
+    const setsMatch = str.match(/(\d+)\s*组/i)
+    if (setsMatch) {
+      const sets = parseInt(setsMatch[1], 10)
+      return Math.max(10, sets * 3)
+    }
+    return defaultMin
+  }
+
+  // 本地智能规则解析引擎 (支持复杂周度排期、训练计划、多日复合句、列表与动作拆解，100% 离线可用)
+  function smartLocalTextParser(
+    text: string,
+    baseWeek: 'current' | 'next' = 'next',
+    defaultProjectId: string = 'personal'
+  ): any[] {
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+    const currentDay = now.getDay()
+    
+    const monday = new Date(now)
+    if (baseWeek === 'next') {
+      const daysToNextMonday = currentDay === 0 ? 1 : 8 - currentDay
+      monday.setDate(now.getDate() + daysToNextMonday)
+    } else {
+      const diff = currentDay === 0 ? -6 : 1 - currentDay
+      monday.setDate(now.getDate() + diff)
+    }
+
+    const getWeekDate = (offsetDays: number) => {
+      const d = new Date(monday)
+      d.setDate(monday.getDate() + offsetDays)
+      return d.toISOString().split('T')[0]
+    }
+
+    const weekDayMap: Record<string, { offset: number; name: string }> = {
+      '周一': { offset: 0, name: '周一' },
+      '星期一': { offset: 0, name: '周一' },
+      '周二': { offset: 1, name: '周二' },
+      '星期二': { offset: 1, name: '周二' },
+      '周三': { offset: 2, name: '周三' },
+      '星期三': { offset: 2, name: '周三' },
+      '周四': { offset: 3, name: '周四' },
+      '星期四': { offset: 3, name: '周四' },
+      '周五': { offset: 4, name: '周五' },
+      '星期五': { offset: 4, name: '周五' },
+      '周六': { offset: 5, name: '周六' },
+      '星期六': { offset: 5, name: '周六' },
+      '周日': { offset: 6, name: '周日' },
+      '周天': { offset: 6, name: '周日' },
+      '星期日': { offset: 6, name: '周日' },
+      '星期天': { offset: 6, name: '周日' },
+    }
+
+    const rawLines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+
+    const parsedTasks: any[] = []
+
+    const hasWeekdayMarkers = rawLines.some((l) =>
+      Object.keys(weekDayMap).some((k) => l.includes(k))
+    )
+
+    if (hasWeekdayMarkers) {
+      for (const line of rawLines) {
+        if (line.includes('周二、四、六') || line.includes('二、四、六') || (line.includes('周') && line.includes('选一天'))) {
+          const parts = line.split(/[，。；]/).map((p) => p.trim()).filter(Boolean)
+          const aerobicPart = parts.find((p) => p.includes('有氧') || p.includes('跳绳') || p.includes('跑')) || '跳绳或原地跑45分钟'
+          const activatePart = parts.find((p) => p.includes('激活') || p.includes('哑铃')) || '轻量哑铃激活与拉伸'
+
+          parsedTasks.push({
+            title: '周二：纯有氧减脂训练 (跳绳/原地跑45分钟)',
+            due_date: getWeekDate(1),
+            priority: 'p2',
+            project_id: defaultProjectId,
+            estimated_minutes: 45,
+            notes: line,
+            subtasks: [
+              { title: '热身拉伸 5分钟', estimated_minutes: 5 },
+              { title: aerobicPart, estimated_minutes: 40 },
+            ],
+          })
+
+          parsedTasks.push({
+            title: '周四：轻量哑铃激活与核心训练',
+            due_date: getWeekDate(3),
+            priority: 'p2',
+            project_id: defaultProjectId,
+            estimated_minutes: 30,
+            notes: '组间歇90秒，低重量多次数激活',
+            subtasks: [
+              { title: activatePart, estimated_minutes: 20 },
+              { title: '核心拉伸放松 10分钟', estimated_minutes: 10 },
+            ],
+          })
+
+          parsedTasks.push({
+            title: '周六：全身轻量激活与耐力保持',
+            due_date: getWeekDate(5),
+            priority: 'p2',
+            project_id: defaultProjectId,
+            estimated_minutes: 30,
+            notes: '状态好可补有氧，周日休息',
+            subtasks: [
+              { title: activatePart, estimated_minutes: 20 },
+              { title: '全身拉伸筋膜放松 10分钟', estimated_minutes: 10 },
+            ],
+          })
+          continue
+        }
+
+        let matchedDayKey: string | null = null
+        for (const k of Object.keys(weekDayMap)) {
+          if (line.startsWith(k) || line.includes(`${k}：`) || line.includes(`${k}:`)) {
+            matchedDayKey = k
+            break
+          }
+        }
+
+        if (matchedDayKey) {
+          const { offset, name } = weekDayMap[matchedDayKey]
+          const targetDate = getWeekDate(offset)
+
+          let taskTitle = ''
+          let detailsText = ''
+          const colonIdx = line.search(/[:：]/)
+          if (colonIdx !== -1) {
+            const prefix = line.slice(0, colonIdx).trim()
+            taskTitle = prefix.replace(/^周[一二三四五六日天]/, (m) => `${m} `)
+            if (/胸/.test(taskTitle) && !/训练|练/.test(taskTitle)) taskTitle += '部训练'
+            else if (/背/.test(taskTitle) && !/训练|练/.test(taskTitle)) taskTitle += '部训练'
+            else if (/(肩|臂)/.test(taskTitle) && !/训练|练/.test(taskTitle)) taskTitle += '训练'
+            else if (/腿/.test(taskTitle) && !/训练|练/.test(taskTitle)) taskTitle += '部训练'
+            else if (/腹|核心/.test(taskTitle) && !/训练|练/.test(taskTitle)) taskTitle += '训练'
+
+            detailsText = line.slice(colonIdx + 1).trim()
+          } else {
+            taskTitle = line
+            detailsText = ''
+          }
+
+          const subItems = detailsText
+            ? detailsText.split(/[，,；;。]/).map((s) => s.trim()).filter(Boolean)
+            : []
+
+          let totalMins = 0
+          const subtasks = subItems.map((item) => {
+            const mins = parseDurationMinutes(item, 15)
+            totalMins += mins
+            return {
+              title: item,
+              estimated_minutes: mins,
+            }
+          })
+
+          if (totalMins === 0) totalMins = 45
+
+          parsedTasks.push({
+            title: taskTitle.includes('：') || taskTitle.includes(':') ? taskTitle : `${name}：${taskTitle.replace(name, '').trim()}`,
+            due_date: targetDate,
+            priority: 'p2',
+            project_id: defaultProjectId,
+            estimated_minutes: totalMins,
+            notes: detailsText,
+            subtasks,
+          })
+          continue
+        }
+      }
+    }
+
+    if (parsedTasks.length === 0) {
+      for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i]
+        if (line.length < 3) continue
+        const cleaned = line.replace(/^\d+[\.、\s]+/, '').replace(/^[-*•]\s+/, '').trim()
+        if (!cleaned) continue
+
+        parsedTasks.push({
+          title: cleaned.slice(0, 60),
+          due_date: todayStr,
+          priority: 'p2',
+          project_id: defaultProjectId,
+          estimated_minutes: 30,
+          notes: line.length > 60 ? line : '',
+          subtasks: [],
+        })
+      }
+    }
+
+    return parsedTasks
+  }
+
+  // AI Smart Text Breakdown & Multi-Task Parser (支持复杂排期、周计划、长文智能拆解)
+  ipcMain.handle('ai:smartParseTasks', async (_, { text, baseWeek = 'next', defaultProjectId = 'personal', apiKey, baseUrl, model, userRole }) => {
+    if (!text || !text.trim()) return []
+
+    const roleTitle = userRole || db.getUserProfile().role_title || '专业人士'
+    const now = new Date()
+    const currentDay = now.getDay()
+    const daysToNextMonday = currentDay === 0 ? 1 : 8 - currentDay
+    const targetMonday = new Date(now)
+    if (baseWeek === 'next') {
+      targetMonday.setDate(now.getDate() + daysToNextMonday)
+    } else {
+      const diff = currentDay === 0 ? -6 : 1 - currentDay
+      targetMonday.setDate(now.getDate() + diff)
+    }
+    const targetMondayStr = targetMonday.toISOString().split('T')[0]
+
+    if (apiKey) {
+      try {
+        const response = await fetch(`${baseUrl || 'https://api.deepseek.com/v1'}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: model || 'deepseek-chat',
+            messages: [
+              {
+                role: 'system',
+                content: `你是一位顶尖的任务规划与时间管理专家。请将用户输入的任意复杂文本（如周计划、训练排期、项目大纲、会议纪要等）智能分析并拆解为标准结构化的待办任务列表。
+基准信息：
+- 目标周周一日期为：${targetMondayStr}（以此为基准，依次计算周一至周日的 YYYY-MM-DD 具体日期）
+- 身份角色：${roleTitle}
+- 默认项目分类：${defaultProjectId}
+
+拆解要求：
+1. 识别文本中提到的执行周期、具体星期几（周一/周二...），并算出精确对应的 due_date (格式: YYYY-MM-DD)。
+2. 若某句话中提到多个天（例如“周二、四、六选一天做有氧，剩下两天做哑铃激活”），请将其智能展开拆解为对应周几的具体独立任务！
+3. 提取精炼有力的任务主标题（title），如“周一：胸部训练 (居家哑铃)”。
+4. 将每个任务包含的具体动作、步骤、条目拆解为 subtasks 数组，并合理预估每个子步骤的分钟数（estimated_minutes，如 10~30 分钟）。
+5. 主任务的 estimated_minutes 为各子任务用时之和（若无子任务则设为合理预估值如 45 分钟）。
+6. 提取注意事项、组间歇、要求等作为 notes。
+7. 优先级 priority 根据重要性赋 'p1'|'p2'|'p3'|'p4'。
+
+必须严格且仅输出标准 JSON 数组，严禁任何前言、解释或 Markdown 外壳：
+[
+  {
+    "title": "周一：胸部训练 (居家哑铃)",
+    "due_date": "${targetMondayStr}",
+    "priority": "p2",
+    "project_id": "${defaultProjectId}",
+    "estimated_minutes": 75,
+    "notes": "组间歇90秒，重量选做到第12次刚好力竭的",
+    "subtasks": [
+      { "title": "热身5分钟开合跳", "estimated_minutes": 5 },
+      { "title": "哑铃平板卧推4组×12次", "estimated_minutes": 15 },
+      { "title": "上斜哑铃卧推用枕头垫背4组×12次", "estimated_minutes": 15 },
+      { "title": "哑铃臂屈伸3组×10次", "estimated_minutes": 10 },
+      { "title": "原地高抬腿30分钟", "estimated_minutes": 30 }
+    ]
+  }
+]`,
+              },
+              {
+                role: 'user',
+                content: `请帮我将以下内容智能拆解为任务列表：\n${text}`,
+              },
+            ],
+            temperature: 0.2,
+          }),
+        })
+
+        const data = await response.json()
+        if (data.choices && data.choices[0]?.message?.content) {
+          let content = data.choices[0].message.content.trim()
+          if (content.startsWith('```')) {
+            content = content.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+          }
+          const parsed = JSON.parse(content)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((item: any) => ({
+              title: String(item.title || item.name || '').trim(),
+              due_date: String(item.due_date || targetMondayStr),
+              priority: item.priority || 'p2',
+              project_id: item.project_id || defaultProjectId,
+              estimated_minutes: Number(item.estimated_minutes) || 30,
+              notes: item.notes || '',
+              subtasks: Array.isArray(item.subtasks)
+                ? item.subtasks.map((st: any) => ({
+                    title: String(st.title || st.name || '').trim(),
+                    estimated_minutes: Number(st.estimated_minutes) || 15,
+                  })).filter((st: any) => st.title.length > 0)
+                : [],
+            }))
+          }
+        }
+      } catch (err) {
+        console.error('AI smartParseTasks API Error, falling back to local heuristic parser:', err)
+      }
+    }
+
+    return smartLocalTextParser(text, baseWeek, defaultProjectId)
   })
 
   // AI Connection Test

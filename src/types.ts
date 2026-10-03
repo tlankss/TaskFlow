@@ -166,6 +166,7 @@ declare global {
     electronAPI: {
       getTasks: () => Promise<Task[]>
       addTask: (task: Partial<Task>) => Promise<Task>
+      addTasks?: (tasks: Partial<Task>[]) => Promise<Task[]>
       updateTask: (id: string, updates: Partial<Task>) => Promise<Task | null>
       deleteTask: (id: string) => Promise<boolean>
       getProjects: () => Promise<Project[]>
@@ -176,6 +177,7 @@ declare global {
       getUserStats: () => Promise<UserStats>
       generateAIWeeklyReport: (params: { apiKey?: string; baseUrl?: string; model?: string; tasks: Task[]; userRole?: string }) => Promise<string>
       aiBreakdownTask?: (params: { title: string; notes?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) => Promise<{ title: string; estimated_minutes: number }[]>
+      smartParseTasks?: (params: { text: string; baseWeek?: 'current' | 'next'; defaultProjectId?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) => Promise<ParsedTaskItem[]>
       testAIConnection?: (params: { apiKey: string; baseUrl?: string; model?: string }) => Promise<{ success: boolean; latency?: number; error?: string }>
       updateTrayTitle: (title: string) => void
       openDevTools?: () => Promise<void>
@@ -185,4 +187,17 @@ declare global {
       clearAuthData?: () => Promise<boolean>
     }
   }
+}
+
+export interface ParsedTaskItem {
+  id?: string
+  title: string
+  notes?: string
+  priority?: 'p1' | 'p2' | 'p3' | 'p4'
+  project_id?: string
+  estimated_minutes: number
+  due_date: string
+  is_today?: boolean
+  selected?: boolean
+  subtasks?: { id?: string; title: string; estimated_minutes?: number }[]
 }

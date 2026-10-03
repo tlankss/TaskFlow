@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('electronAPI', {
   getTasks: () => ipcRenderer.invoke('db:getTasks'),
   addTask: (task: any) => ipcRenderer.invoke('db:addTask', task),
+  addTasks: (tasks: any[]) => ipcRenderer.invoke('db:addTasks', tasks),
   updateTask: (id: string, updates: any) => ipcRenderer.invoke('db:updateTask', id, updates),
   deleteTask: (id: string) => ipcRenderer.invoke('db:deleteTask', id),
   getProjects: () => ipcRenderer.invoke('db:getProjects'),
@@ -18,6 +19,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('ai:generateWeeklyReport', params),
   aiBreakdownTask: (params: { title: string; notes?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) =>
     ipcRenderer.invoke('ai:breakdownTask', params),
+  smartParseTasks: (params: { text: string; baseWeek?: 'current' | 'next'; defaultProjectId?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) =>
+    ipcRenderer.invoke('ai:smartParseTasks', params),
   testAIConnection: (params: { apiKey: string; baseUrl?: string; model?: string }) =>
     ipcRenderer.invoke('ai:testConnection', params),
   updateTrayTitle: (title: string) => ipcRenderer.send('tray:updateTitle', title),

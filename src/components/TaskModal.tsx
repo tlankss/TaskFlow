@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Calendar, Clock, Inbox, Sun, Folder, Plus, Trash2, Check, ListTodo, MessageSquare, Sparkles, Loader2, Settings } from 'lucide-react'
+import { X, Calendar, Clock, Inbox, Sun, Folder, Plus, Trash2, Check, ListTodo, MessageSquare, Sparkles, Loader2, Settings, ArrowRight } from 'lucide-react'
 import { Task, Project, SubTask } from '../types'
 import { DurationPicker, formatDuration } from './DurationPicker'
 import { DatePicker } from './DatePicker'
@@ -14,6 +14,7 @@ interface TaskModalProps {
   defaultDueDate?: string
   defaultProjectId?: string
   onOpenAISettings?: () => void
+  onOpenSmartBreakdown?: () => void
 }
 
 export const TaskModal: React.FC<TaskModalProps> = ({
@@ -26,6 +27,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   defaultDueDate,
   defaultProjectId = 'work',
   onOpenAISettings,
+  onOpenSmartBreakdown,
 }) => {
   const [title, setTitle] = useState('')
   const [titleError, setTitleError] = useState(false)
@@ -306,6 +308,27 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
+          {/* Quick Smart Text Breakdown Bar */}
+          {!editingTask && onOpenSmartBreakdown && (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-[#07C160]/10 border border-[#07C160]/25">
+              <div className="flex items-center space-x-2 text-xs text-slate-700 dark:text-slate-300">
+                <Sparkles className="w-3.5 h-3.5 text-[#07C160] shrink-0" />
+                <span>复制了多天训练排期或长篇计划？试试智能解析批量入表</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  onOpenSmartBreakdown()
+                }}
+                className="px-2.5 py-1 rounded-lg bg-[#07C160] hover:bg-[#06AD56] active:bg-[#059B4D] text-white text-xs font-semibold shadow-xs flex items-center space-x-1 shrink-0 transition-all cursor-pointer"
+              >
+                <span>粘贴拆解</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">

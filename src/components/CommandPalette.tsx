@@ -10,6 +10,7 @@ interface CommandPaletteProps {
   onSelectView: (view: ViewMode) => void
   onNewTask: () => void
   onOpenAIReport: () => void
+  onOpenSmartBreakdown?: () => void
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
@@ -20,6 +21,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onSelectView,
   onNewTask,
   onOpenAIReport,
+  onOpenSmartBreakdown,
 }) => {
   const [query, setQuery] = useState('')
 
@@ -114,6 +116,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 </div>
                 <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
               </button>
+
+              {onOpenSmartBreakdown && (
+                <button
+                  onClick={() => {
+                    onOpenSmartBreakdown()
+                    onClose()
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-700 dark:text-slate-200 hover:bg-black/5 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white transition-colors"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <Sparkles className="w-4 h-4 text-emerald-500" />
+                    <span>智能文本拆解与批量入表...</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+              )}
             </div>
           )}
 

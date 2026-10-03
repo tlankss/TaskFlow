@@ -226,6 +226,18 @@ class StorageDB {
     return newTask
   }
 
+  public addTasks(tasks: (Omit<Task, 'id' | 'created_at'> & { id?: string; created_at?: string })[]): Task[] {
+    const now = new Date().toISOString()
+    const newTasks: Task[] = tasks.map((task, idx) => ({
+      ...task,
+      id: task.id || ('task_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substr(2, 4)),
+      created_at: task.created_at || now,
+    }))
+    this.data.tasks.unshift(...newTasks)
+    this.saveData(this.data)
+    return newTasks
+  }
+
   public updateTask(id: string, updates: Partial<Task>): Task | null {
     const idx = this.data.tasks.findIndex((t) => t.id === id)
     if (idx !== -1) {

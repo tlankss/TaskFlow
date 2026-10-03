@@ -3,6 +3,7 @@ import { Plus, Sun, Moon, Monitor, Sparkles, Search, LayoutList, Kanban, Grid, C
 import { Sidebar } from './components/Sidebar'
 import { TaskItem } from './components/TaskItem'
 import { TaskModal } from './components/TaskModal'
+import { SmartBreakdownModal } from './components/SmartBreakdownModal'
 import { AIReportModal } from './components/AIReportModal'
 import { FocusTimerBar } from './components/FocusTimerBar'
 import { CommandPalette } from './components/CommandPalette'
@@ -81,6 +82,7 @@ export const App: React.FC = () => {
   const [targetDateForNewTask, setTargetDateForNewTask] = useState<string | undefined>()
 
   const [isAIReportOpen, setIsAIReportOpen] = useState(false)
+  const [isSmartBreakdownOpen, setIsSmartBreakdownOpen] = useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false)
   const [userProfileTab, setUserProfileTab] = useState<'profile' | 'sync' | 'ai' | 'badges'>('sync')
@@ -1462,6 +1464,46 @@ export const App: React.FC = () => {
     }
   }
 
+  // 4.1 批量导入与排期任务 (由智能文本拆解器触发，本地即时乐观更新 + 静默云端同步)
+  const handleBatchAddTasks = async (newTasksData: Partial<Task>[]) => {
+    try {
+      const now = new Date().toISOString()
+      const formattedTasks = newTasksData.map((td) => ({
+        ...td,
+        updated_at: now,
+      }))
+
+      if (window.electronAPI?.addTasks) {
+        const created = await window.electronAPI.addTasks(formattedTasks)
+        if (created && created.length > 0) {
+          setTasks((prev) => [...created, ...prev])
+          cloudBatchAddTasks(created)
+        }
+      } else if (window.electronAPI?.addTask) {
+        const addedList: Task[] = []
+        for (const item of formattedTasks) {
+          const added = await window.electronAPI.addTask(item)
+          if (added) addedList.push(added)
+        }
+        if (addedList.length > 0) {
+          setTasks((prev) => [...addedList, ...prev])
+          cloudBatchAddTasks(addedList)
+        }
+      } else {
+        const fallbackTasks: Task[] = formattedTasks.map((t, idx) => ({
+          ...t,
+          id: `task_${Date.now()}_${idx}`,
+          created_at: now,
+          status: 'todo',
+        } as Task))
+        setTasks((prev) => [...fallbackTasks, ...prev])
+        cloudBatchAddTasks(fallbackTasks)
+      }
+    } catch (err) {
+      console.error('Batch add tasks error:', err)
+    }
+  }
+
   // 5. 专注计时器状态联动 (开始专注时将任务自动标记为 in_progress)
   const handleToggleTimer = async (task: Task) => {
     const now = new Date().toISOString()
@@ -1665,17 +1707,27 @@ export const App: React.FC = () => {
                 <span className="whitespace-nowrap">新建阅读规划</span>
               </button>
             ) : (
-              <button
-                onClick={() => {
-                  setEditingTask(null)
-                  setTargetDateForNewTask(undefined)
-                  setIsTaskModalOpen(true)
-                }}
-                className="h-8 px-3.5 rounded-xl bg-[#07C160] hover:bg-[#06AD56] active:bg-[#059B4D] text-white text-xs font-semibold shadow-md shadow-[#07C160]/20 flex items-center space-x-1.5 transition-all no-drag shrink-0 whitespace-nowrap"
-              >
-                <Plus className="w-4 h-4 shrink-0" />
-                <span className="whitespace-nowrap">新建任务</span>
-              </button>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  onClick={() => setIsSmartBreakdownOpen(true)}
+                  className="h-8 px-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-[#07C160]/15 hover:from-emerald-500/20 hover:to-teal-500/20 text-[#07C160] dark:text-emerald-400 border border-[#07C160]/30 text-xs font-semibold shadow-xs flex items-center space-x-1.5 transition-all no-drag shrink-0 whitespace-nowrap cursor-pointer active:scale-95"
+                  title="粘贴整段长文排期、健身计划或周度任务，自动识别日期并智能拆解入表"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#07C160]" />
+                  <span>智能拆解</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingTask(null)
+                    setTargetDateForNewTask(undefined)
+                    setIsTaskModalOpen(true)
+                  }}
+                  className="h-8 px-3.5 rounded-xl bg-[#07C160] hover:bg-[#06AD56] active:bg-[#059B4D] text-white text-xs font-semibold shadow-md shadow-[#07C160]/20 flex items-center space-x-1.5 transition-all no-drag shrink-0 whitespace-nowrap cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">新建任务</span>
+                </button>
+              </div>
             )}
           </div>
         </header>
@@ -1891,6 +1943,14 @@ export const App: React.FC = () => {
           setUserProfileTab('ai')
           setIsUserProfileModalOpen(true)
         }}
+        onOpenSmartBreakdown={() => setIsSmartBreakdownOpen(true)}
+      />
+
+      <SmartBreakdownModal
+        isOpen={isSmartBreakdownOpen}
+        onClose={() => setIsSmartBreakdownOpen(false)}
+        projects={projects}
+        onBatchAddTasks={handleBatchAddTasks}
       />
 
       <AIReportModal
@@ -1959,6 +2019,7 @@ export const App: React.FC = () => {
           setIsTaskModalOpen(true)
         }}
         onOpenAIReport={() => setIsAIReportOpen(true)}
+        onOpenSmartBreakdown={() => setIsSmartBreakdownOpen(true)}
       />
 
       <UserProfileModal
