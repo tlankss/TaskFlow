@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('ai:generateWeeklyReport', params),
   aiBreakdownTask: (params: { title: string; notes?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) =>
     ipcRenderer.invoke('ai:breakdownTask', params),
-  smartParseTasks: (params: { text: string; baseWeek?: 'current' | 'next'; defaultProjectId?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) =>
+  smartParseTasks: (params: { text: string; baseWeek?: 'current' | 'next'; durationScope?: string; defaultProjectId?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) =>
     ipcRenderer.invoke('ai:smartParseTasks', params),
   testAIConnection: (params: { apiKey: string; baseUrl?: string; model?: string }) =>
     ipcRenderer.invoke('ai:testConnection', params),

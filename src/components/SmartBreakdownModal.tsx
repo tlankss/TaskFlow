@@ -16,7 +16,6 @@ import {
   Dumbbell,
   Laptop,
   BookOpen,
-  Settings,
   Bot,
   Zap,
   Eye,
@@ -34,7 +33,6 @@ interface SmartBreakdownModalProps {
   onClose: () => void
   projects: Project[]
   onBatchAddTasks: (tasks: Partial<Task>[]) => Promise<void>
-  onOpenSettings?: () => void
 }
 
 // 预设优秀范例文本，方便用户一键体验
@@ -83,10 +81,10 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
   onClose,
   projects,
   onBatchAddTasks,
-  onOpenSettings,
 }) => {
   const [inputText, setInputText] = useState('')
   const [baseWeek, setBaseWeek] = useState<'current' | 'next'>('next')
+  const [durationScope, setDurationScope] = useState<'auto' | '1week' | '2weeks' | '1month' | '3months' | '6months'>('auto')
   const [selectedProjectId, setSelectedProjectId] = useState('personal')
   const [isParsing, setIsParsing] = useState(false)
   const [parsedItems, setParsedItems] = useState<ParsedTaskItem[]>([])
@@ -131,6 +129,7 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
         result = await window.electronAPI.smartParseTasks({
           text: trimmed,
           baseWeek,
+          durationScope,
           defaultProjectId: selectedProjectId,
           apiKey: effectiveKey,
           baseUrl: effectiveBaseUrl,
@@ -212,6 +211,16 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
     (acc, curr) => acc + (curr.estimated_minutes || 0),
     0
   )
+  const sortedDates = parsedItems
+    .map((i) => i.due_date)
+    .filter(Boolean)
+    .sort() as string[]
+  const dateRangeStr =
+    sortedDates.length > 0
+      ? sortedDates[0] === sortedDates[sortedDates.length - 1]
+        ? sortedDates[0]
+        : `${sortedDates[0]} ~ ${sortedDates[sortedDates.length - 1]}`
+      : ''
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm no-drag">
@@ -325,18 +334,6 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
                   />
                 </button>
               </label>
-
-              {onOpenSettings && (
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
-                  className="flex items-center space-x-1 text-slate-400 hover:text-[#07C160] dark:hover:text-[#07C160] transition-colors cursor-pointer text-xs"
-                  title="前往个人中心配置或更改通用 AI 模型与 Key"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>通用设置</span>
-                </button>
-              )}
             </div>
           </div>
 
@@ -380,8 +377,26 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
                   onChange={(e) => setBaseWeek(e.target.value as 'current' | 'next')}
                   className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:border-[#07C160]"
                 >
-                  <option value="next">下周一至周日 (推荐周计划)</option>
-                  <option value="current">本周内排期</option>
+                  <option value="next">下周起排</option>
+                  <option value="current">本周起排</option>
+                </select>
+              </div>
+
+              {/* Duration scope selector */}
+              <div className="flex items-center space-x-1 text-slate-500 dark:text-slate-400">
+                <Clock className="w-3.5 h-3.5" />
+                <span>周期跨度:</span>
+                <select
+                  value={durationScope}
+                  onChange={(e) => setDurationScope(e.target.value as any)}
+                  className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:border-[#07C160]"
+                >
+                  <option value="auto">✨ 智能识别 (根据文本自动识别3个月等)</option>
+                  <option value="1week">单周计划 (7天)</option>
+                  <option value="2weeks">双周冲刺 (2周)</option>
+                  <option value="1month">月度进阶 (4周/1个月)</option>
+                  <option value="3months">季度规划 (12周/3个月)</option>
+                  <option value="6months">半年进阶 (24周/6个月)</option>
                 </select>
               </div>
             </div>
@@ -415,7 +430,7 @@ export const SmartBreakdownModal: React.FC<SmartBreakdownModalProps> = ({
                     拆解预览 (勾选需入表的项目)
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
-                    共 {parsedItems.length} 项主任务 · {totalSubtasksCount} 个子步骤 · 预计总投入 {formatDuration(totalEstimatedMinutes, true)}
+                    共 {parsedItems.length} 项主任务{dateRangeStr ? ` · 跨度: ${dateRangeStr}` : ''} · {totalSubtasksCount} 个子步骤 · 预计总投入 {formatDuration(totalEstimatedMinutes, true)}
                   </span>
                 </div>
 

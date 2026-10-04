@@ -176,8 +176,24 @@ declare global {
       updateUserProfile: (profile: Partial<UserProfile>) => Promise<UserProfile>
       getUserStats: () => Promise<UserStats>
       generateAIWeeklyReport: (params: { apiKey?: string; baseUrl?: string; model?: string; tasks: Task[]; userRole?: string }) => Promise<string>
-      aiBreakdownTask?: (params: { title: string; notes?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) => Promise<{ title: string; estimated_minutes: number }[]>
-      smartParseTasks?: (params: { text: string; baseWeek?: 'current' | 'next'; defaultProjectId?: string; apiKey?: string; baseUrl?: string; model?: string; userRole?: string }) => Promise<ParsedTaskItem[]>
+      aiBreakdownTask?: (params: {
+        title: string
+        notes?: string
+        apiKey?: string
+        baseUrl?: string
+        model?: string
+        userRole?: string
+      }) => Promise<{ title: string; estimated_minutes: number }[]>
+      smartParseTasks?: (params: {
+        text: string
+        baseWeek?: 'current' | 'next'
+        durationScope?: 'auto' | '1week' | '2weeks' | '1month' | '3months' | '6months'
+        defaultProjectId?: string
+        apiKey?: string
+        baseUrl?: string
+        model?: string
+        userRole?: string
+      }) => Promise<ParsedTaskItem[]>
       testAIConnection?: (params: { apiKey: string; baseUrl?: string; model?: string }) => Promise<{ success: boolean; latency?: number; error?: string }>
       updateTrayTitle: (title: string) => void
       openDevTools?: () => Promise<void>

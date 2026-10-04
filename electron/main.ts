@@ -570,7 +570,8 @@ ${
   function smartLocalTextParser(
     text: string,
     baseWeek: 'current' | 'next' = 'next',
-    defaultProjectId: string = 'personal'
+    defaultProjectId: string = 'personal',
+    durationScope: string = 'auto'
   ): any[] {
     const now = new Date()
     const todayStr = now.toISOString().split('T')[0]
@@ -768,6 +769,59 @@ ${
       parsedTasks.sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
     }
 
+    // 智能识别时间规划跨度 (如: 3个月, 1个月, 4周, 半年, 2周)
+    let detectedScope = durationScope || 'auto'
+    if (detectedScope === 'auto') {
+      if (/(\d+|[一两二三四五六七八九十]+)\s*个?月/.test(text)) {
+        const m = text.match(/(\d+|[一两二三四五六七八九十]+)\s*个?月/)!
+        const numMap: any = { '一': 1, '两': 2, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 }
+        const val = parseInt(m[1], 10) || numMap[m[1]] || 1
+        if (val >= 6) detectedScope = '6months'
+        else if (val >= 3) detectedScope = '3months'
+        else if (val >= 1) detectedScope = '1month'
+      } else if (/半年/.test(text)) {
+        detectedScope = '6months'
+      } else if (/(\d+|[一两二三四五六七八九十]+)\s*周/.test(text)) {
+        const m = text.match(/(\d+|[一两二三四五六七八九十]+)\s*周/)!
+        const numMap: any = { '一': 1, '两': 2, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 }
+        const val = parseInt(m[1], 10) || numMap[m[1]] || 1
+        if (val >= 12) detectedScope = '3months'
+        else if (val >= 4) detectedScope = '1month'
+        else if (val >= 2) detectedScope = '2weeks'
+        else detectedScope = '1week'
+      } else if (/季度/.test(text)) {
+        detectedScope = '3months'
+      }
+    }
+
+    let totalWeeks = 1
+    if (detectedScope === '2weeks') totalWeeks = 2
+    else if (detectedScope === '1month') totalWeeks = 4
+    else if (detectedScope === '3months') totalWeeks = 12
+    else if (detectedScope === '6months') totalWeeks = 24
+
+    if (totalWeeks > 1 && parsedTasks.length > 0) {
+      const multiWeekTasks: any[] = []
+      for (let w = 1; w <= totalWeeks; w++) {
+        const dayOffset = (w - 1) * 7
+        const phaseMonth = Math.ceil(w / 4)
+        for (const t of parsedTasks) {
+          const d = new Date(t.due_date)
+          d.setDate(d.getDate() + dayOffset)
+          const newDueDate = d.toISOString().split('T')[0]
+          const phaseNote = totalWeeks >= 4 ? `【第${phaseMonth}阶段·第${w}周进阶】` : `【第${w}周】`
+          multiWeekTasks.push({
+            ...t,
+            title: t.title.startsWith('第') ? t.title : `第${w}周·${t.title}`,
+            due_date: newDueDate,
+            notes: `${phaseNote}${t.notes || ''}`.trim(),
+            engine: 'local',
+          })
+        }
+      }
+      return multiWeekTasks
+    }
+
     if (parsedTasks.length === 0) {
       for (let i = 0; i < rawLines.length; i++) {
         const line = rawLines[i]
@@ -791,8 +845,17 @@ ${
     return parsedTasks
   }
 
-  // AI Smart Text Breakdown & Multi-Task Parser (支持复杂排期、周计划、长文智能拆解)
-  ipcMain.handle('ai:smartParseTasks', async (_, { text, baseWeek = 'next', defaultProjectId = 'personal', apiKey, baseUrl, model, userRole }) => {
+  // AI Smart Text Breakdown & Multi-Task Parser (支持复杂排期、时间周期需求、长文智能拆解)
+  ipcMain.handle('ai:smartParseTasks', async (_, {
+    text,
+    baseWeek = 'next',
+    durationScope = 'auto',
+    defaultProjectId = 'personal',
+    apiKey,
+    baseUrl,
+    model,
+    userRole
+  }) => {
     if (!text || !text.trim()) return []
 
     const roleTitle = userRole || db.getUserProfile().role_title || '专业人士'
@@ -808,6 +871,42 @@ ${
     }
     const targetMondayStr = targetMonday.toISOString().split('T')[0]
 
+    // 智能识别时间跨度需求 (如用户输入 "生成3个月计划"、"持续4周"、"半年")
+    let detectedScope = durationScope || 'auto'
+    if (detectedScope === 'auto') {
+      if (/(\d+|[一两二三四五六七八九十]+)\s*个?月/.test(text)) {
+        const m = text.match(/(\d+|[一两二三四五六七八九十]+)\s*个?月/)!
+        const numMap: any = { '一': 1, '两': 2, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 }
+        const val = parseInt(m[1], 10) || numMap[m[1]] || 1
+        if (val >= 6) detectedScope = '6months'
+        else if (val >= 3) detectedScope = '3months'
+        else if (val >= 1) detectedScope = '1month'
+      } else if (/半年/.test(text)) {
+        detectedScope = '6months'
+      } else if (/(\d+|[一两二三四五六七八九十]+)\s*周/.test(text)) {
+        const m = text.match(/(\d+|[一两二三四五六七八九十]+)\s*周/)!
+        const numMap: any = { '一': 1, '两': 2, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 }
+        const val = parseInt(m[1], 10) || numMap[m[1]] || 1
+        if (val >= 12) detectedScope = '3months'
+        else if (val >= 4) detectedScope = '1month'
+        else if (val >= 2) detectedScope = '2weeks'
+        else detectedScope = '1week'
+      } else if (/季度/.test(text)) {
+        detectedScope = '3months'
+      }
+    }
+
+    let totalWeeks = 1
+    let scopeDesc = '单周计划 (1 周)'
+    if (detectedScope === '2weeks') { totalWeeks = 2; scopeDesc = '双周冲刺计划 (持续 2 周)' }
+    else if (detectedScope === '1month') { totalWeeks = 4; scopeDesc = '月度进阶计划 (持续 4 周 / 1 个月)' }
+    else if (detectedScope === '3months') { totalWeeks = 12; scopeDesc = '季度进阶计划 (持续 12 周 / 3 个月)' }
+    else if (detectedScope === '6months') { totalWeeks = 24; scopeDesc = '半年长期进阶规划 (持续 24 周 / 6 个月)' }
+
+    const endDate = new Date(targetMonday)
+    endDate.setDate(targetMonday.getDate() + (totalWeeks * 7) - 1)
+    const endDateStr = endDate.toISOString().split('T')[0]
+
     if (apiKey) {
       try {
         const response = await fetch(`${baseUrl || 'https://api.deepseek.com/v1'}/chat/completions`, {
@@ -818,38 +917,49 @@ ${
           },
           body: JSON.stringify({
             model: model || 'deepseek-chat',
+            max_tokens: 8192,
+            temperature: 0.2,
             messages: [
               {
                 role: 'system',
-                content: `你是一位顶尖的任务规划与时间管理专家。请将用户输入的任意复杂文本（如周计划、训练排期、项目大纲、会议纪要等）智能分析并拆解为标准结构化的待办任务列表。
-基准信息：
-- 目标周周一日期为：${targetMondayStr}（以此为基准，依次计算周一至周日的 YYYY-MM-DD 具体日期）
+                content: `你是一位顶尖的任务规划与时间管理专家。请将用户输入的任意复杂文本（如长期训练排期、周计划、项目大纲、学习冲刺等）智能分析并拆解为标准结构化的待办任务列表。
+
+基准时间与跨度信息：
+- 起始周一公历日期：${targetMondayStr}
+- 识别到的规划总时间跨度：${scopeDesc}（自 ${targetMondayStr} 起，延续至 ${endDateStr}，共计 ${totalWeeks} 周）
 - 身份角色：${roleTitle}
 - 默认项目分类：${defaultProjectId}
 
-拆解要求：
-1. 识别文本中提到的执行周期、具体星期几（周一/周二...），并算出精确对应的 due_date (格式: YYYY-MM-DD)。
-2. 若某句话中提到多个天（例如“周二、四、六选一天做有氧，剩下两天做哑铃激活”），请将其智能展开拆解为对应周几的具体独立任务！
-3. 提取精炼有力的任务主标题（title），如“周一：胸部训练 (居家哑铃)”。
-4. 将每个任务包含的具体动作、步骤、条目拆解为 subtasks 数组，并合理预估每个子步骤的分钟数（estimated_minutes，如 10~30 分钟）。
-5. 主任务的 estimated_minutes 为各子任务用时之和（若无子任务则设为合理预估值如 45 分钟）。
-6. 提取注意事项、组间歇、要求等作为 notes。
-7. 优先级 priority 根据重要性赋 'p1'|'p2'|'p3'|'p4'。
+拆解与时间跨度处理核心要求（极其关键）：
+1. 【时间需求与日期排期覆盖】：
+   - 用户明确指定了时间跨度需求（${scopeDesc}）。你生成的待办任务【必须真实排布并覆盖整个 ${totalWeeks} 周时间周期】（从起始周一直规划延续至 ${endDateStr} 对应周期），严禁仅输出单单一星期！
+   - 每项任务的 due_date 必须是格式为 YYYY-MM-DD 的具体真实公历日期，严格根据周次和星期几精准推算。例如起始周周一为 ${targetMondayStr}，后续周依次为 +7天、+14天、+21天等；周二依次为 +1天、+8天...严格排布至整个 ${totalWeeks} 周（${endDateStr}）范围内！
+   - 对于长周期（如 3 个月/12 周 / 4 周）：
+     * 阶段性进阶排期：按阶段清晰排布（例如：【第1月/第1~4周·燃脂启动与自重适应期】、【第2月/第5~8周·肌耐力与负荷强化期】、【第3月/第9~12周·线条雕刻与间歇冲刺期】），每个阶段每周安排清晰对应的训练任务！
+     * 渐进式超负荷：根据用户在文本中提到的要求（如“每周慢慢加次数或重量”、“自重多次数压体脂雕刻线条”），在不同周次或阶段中，子动作的组数、次数、时长逐步进阶递增，并在 notes 中注明该阶段的进阶要点！
+2. 【复合日程智能展开】：
+   - 若某句话中提到多个天（例如“周二周四周六选一天做40分钟快走或慢跑，剩下两天做15分钟全身激活”），请将其智能展开拆解为对应周几的具体独立任务！
+3. 【任务标题与子任务】：
+   - 主任务标题 title 必须精炼有力且包含阶段或周次（例如：“第1周·周一：自重胸部进阶训练” 或 “第5周·周一：胸肌强化 (增次数)”）。
+   - 将每个任务包含的具体动作、步骤拆解为 subtasks 数组，清洗掉“接”、“然后”、“最后”等口语连词，并合理预估每个子步骤的分钟数（estimated_minutes）。
+   - 主任务的 estimated_minutes 为各子步骤用时之和。
+   - 提取组间歇、动作要领作为 notes。
+4. 【输出规范】：
+   - 必须严格且仅输出标准 JSON 数组，严禁任何前言、解释或 Markdown 代码块外壳。
 
-必须严格且仅输出标准 JSON 数组，严禁任何前言、解释或 Markdown 外壳：
+示例输出格式：
 [
   {
-    "title": "周一：胸部训练 (居家哑铃)",
+    "title": "第1周·周一：自重胸部燃脂雕刻 (适应期)",
     "due_date": "${targetMondayStr}",
     "priority": "p2",
     "project_id": "${defaultProjectId}",
-    "estimated_minutes": 75,
-    "notes": "组间歇90秒，重量选做到第12次刚好力竭的",
+    "estimated_minutes": 70,
+    "notes": "第一阶段适应期，组间歇60秒，动作标准到位",
     "subtasks": [
-      { "title": "热身5分钟开合跳", "estimated_minutes": 5 },
-      { "title": "哑铃平板卧推4组×12次", "estimated_minutes": 15 },
-      { "title": "上斜哑铃卧推用枕头垫背4组×12次", "estimated_minutes": 15 },
-      { "title": "哑铃臂屈伸3组×10次", "estimated_minutes": 10 },
+      { "title": "标准俯卧撑4组×15次", "estimated_minutes": 16 },
+      { "title": "窄距俯卧撑3组×12次", "estimated_minutes": 12 },
+      { "title": "跪姿夹胸俯卧撑3组×18次", "estimated_minutes": 12 },
       { "title": "原地高抬腿30分钟", "estimated_minutes": 30 }
     ]
   }
@@ -860,7 +970,6 @@ ${
                 content: `请帮我将以下内容智能拆解为任务列表：\n${text}`,
               },
             ],
-            temperature: 0.2,
           }),
         })
 
@@ -894,7 +1003,7 @@ ${
       }
     }
 
-    return smartLocalTextParser(text, baseWeek, defaultProjectId)
+    return smartLocalTextParser(text, baseWeek, defaultProjectId, detectedScope)
   })
 
   // AI Connection Test
