@@ -62,6 +62,41 @@ const allowedLayoutsByView: Record<ViewMode, LayoutMode[]> = {
   reading: [],
 }
 
+export const getTodayDateStr = (): string => {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const sanitizeTasks = (taskList: Task[]): Task[] => {
+  const todayStr = getTodayDateStr()
+  return (taskList || []).map((t) => {
+    let cleaned = t
+    if (
+      t.reading_meta?.cover_url &&
+      (t.reading_meta.cover_url.startsWith('data:') || t.reading_meta.cover_url.length > 500)
+    ) {
+      const { cover_url, ...restMeta } = t.reading_meta
+      cleaned = { ...cleaned, reading_meta: restMeta }
+    }
+    // 自动清理历史已完成任务的 is_today 标志（前面/历史完成的任务绝不保留在 Today）
+    if (cleaned.status === 'completed' && cleaned.is_today) {
+      const compDate = cleaned.completed_at
+        ? cleaned.completed_at.slice(0, 10)
+        : cleaned.updated_at
+        ? cleaned.updated_at.slice(0, 10)
+        : ''
+      if (compDate !== todayStr) {
+        cleaned = { ...cleaned, is_today: false }
+        window.electronAPI?.updateTask(cleaned.id, { is_today: false })
+      }
+    }
+    return cleaned
+  })
+}
+
 export const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -384,16 +419,8 @@ export const App: React.FC = () => {
         const fetchedProfile = await window.electronAPI.getUserProfile()
         const fetchedStats = await window.electronAPI.getUserStats()
 
-        // 自动净化历史残留的 base64 巨大封面数据，防止单次同步请求几十兆导致 413 Payload Too Large
-        const cleanedTasks = (fetchedTasks || []).map((t: Task) => {
-          if (t.reading_meta?.cover_url && (t.reading_meta.cover_url.startsWith('data:') || t.reading_meta.cover_url.length > 500)) {
-            const { cover_url, ...restMeta } = t.reading_meta
-            const cleaned = { ...t, reading_meta: restMeta }
-            window.electronAPI?.updateTask(t.id, cleaned)
-            return cleaned
-          }
-          return t
-        })
+        // 自动净化历史残留脏数据，并自动归档清理过往天已完成任务的 is_today 标志
+        const cleanedTasks = sanitizeTasks(fetchedTasks || [])
 
         setTasks(cleanedTasks)
         setProjects(fetchedProjects || [])
@@ -470,7 +497,7 @@ export const App: React.FC = () => {
       // 刷新本地最新任务
       if (window.electronAPI) {
         const refreshed = (await window.electronAPI.getTasks()) || []
-        setTasks(refreshed)
+        setTasks(sanitizeTasks(refreshed))
       } else {
         const delSet = new Set(delta.deletedTaskIds)
         const tMap = new Map<string, Task>()
@@ -1219,10 +1246,17 @@ export const App: React.FC = () => {
     }
 
     if (currentView === 'today') {
-      if (layoutMode === 'kanban') {
-        return t.is_today
+      const todayStr = getTodayDateStr()
+      // 核心原则：Today 聚焦清单只关注今天的内容，绝不展示前面历史完成的任务
+      if (t.status === 'completed') {
+        if (layoutMode !== 'kanban') return false
+        // 看板模式下，只有「今天完成」的任务才可在 Done 列展示为今日成果；历史之前完成的任务彻底排除
+        const compDate = t.completed_at
+          ? t.completed_at.slice(0, 10)
+          : (t.updated_at ? t.updated_at.slice(0, 10) : '')
+        return t.is_today && compDate === todayStr
       }
-      return t.is_today && t.status !== 'completed'
+      return t.is_today
     } else if (currentView === 'inbox') {
       if (layoutMode === 'kanban') {
         return !t.is_today && t.task_type !== 'reading'
@@ -1804,6 +1838,7 @@ export const App: React.FC = () => {
         ) : layoutMode === 'kanban' ? (
           <KanbanView
             tasks={filteredTasks}
+            isTodayView={currentView === 'today'}
             onToggleComplete={handleToggleComplete}
             onToggleToday={handleToggleToday}
             onDelete={handleDeleteTask}

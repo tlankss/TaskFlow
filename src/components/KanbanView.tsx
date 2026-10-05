@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { Plus, ArrowRight, ArrowLeft, Check, RotateCcw } from 'lucide-react'
+import { Plus, ArrowRight, ArrowLeft, Check, RotateCcw, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { Task, SubTask } from '../types'
 import { TaskItem } from './TaskItem'
 
 interface KanbanViewProps {
   tasks: Task[]
+  isTodayView?: boolean
   onToggleComplete: (task: Task) => void
   onToggleToday?: (task: Task) => void
   onDelete: (id: string) => void
@@ -21,6 +22,7 @@ interface KanbanViewProps {
 
 export const KanbanView: React.FC<KanbanViewProps> = ({
   tasks,
+  isTodayView = false,
   onToggleComplete,
   onToggleToday,
   onDelete,
@@ -36,6 +38,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
 }) => {
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<Task['status'] | null>(null)
+  const [isDoneCollapsed, setIsDoneCollapsed] = useState(false)
 
   const todoTasks = tasks.filter((t) => t.status === 'todo')
   const inProgressTasks = tasks.filter((t) => t.status === 'in_progress')
@@ -270,96 +273,133 @@ export const KanbanView: React.FC<KanbanViewProps> = ({
         onDragOver={(e) => handleDragOver(e, 'completed')}
         onDragLeave={(e) => handleDragLeave(e, 'completed')}
         onDrop={(e) => handleDrop(e, 'completed')}
-        className={`flex-1 min-w-[300px] max-w-[450px] flex flex-col rounded-2xl p-4 overflow-hidden shadow-sm transition-all duration-200 ${
-          dragOverColumn === 'completed'
-            ? 'ring-2 ring-[#07C160] bg-emerald-50/70 dark:bg-emerald-950/30 border-[#07C160]'
-            : 'bg-slate-100/50 dark:bg-slate-900/60 border border-slate-200 dark:border-white/5'
+        className={`transition-all duration-200 flex flex-col rounded-2xl shadow-sm ${
+          isDoneCollapsed
+            ? 'w-12 min-w-[48px] max-w-[48px] p-2 items-center bg-slate-100/40 dark:bg-slate-900/40 border border-slate-200/60 dark:border-white/5 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
+            : `flex-1 min-w-[300px] max-w-[450px] p-4 overflow-hidden ${
+                dragOverColumn === 'completed'
+                  ? 'ring-2 ring-[#07C160] bg-emerald-50/70 dark:bg-emerald-950/30 border-[#07C160]'
+                  : 'bg-slate-100/50 dark:bg-slate-900/60 border border-slate-200 dark:border-white/5'
+              }`
         }`}
       >
-        <div className="flex items-center justify-between pb-3 mb-3 border-b border-black/5 dark:border-white/5 shrink-0">
-          <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#07C160]" />
-            <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">已完成 (Done)</h3>
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-black/5 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
-              {completedTasks.length}
-            </span>
+        {isDoneCollapsed ? (
+          <div
+            className="h-full w-full flex flex-col items-center justify-between py-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 select-none"
+            onClick={() => setIsDoneCollapsed(false)}
+            title="点击展开已完成列"
+          >
+            <div className="flex flex-col items-center space-y-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#07C160]" />
+              <span className="px-1 py-0.5 rounded text-[10px] bg-black/5 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+                {completedTasks.length}
+              </span>
+            </div>
+            <div className="[writing-mode:vertical-rl] text-xs font-medium tracking-widest text-slate-500 dark:text-slate-400 py-4">
+              {isTodayView ? '今日已完成' : '已完成'}
+            </div>
+            <ChevronLeft className="w-4 h-4 text-slate-400" />
           </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0">
-          {dragOverColumn === 'completed' && (
-            <div className="h-16 rounded-xl border-2 border-dashed border-[#07C160] bg-[#07C160]/10 flex items-center justify-center text-xs font-medium text-[#07C160] animate-pulse">
-              松开鼠标放入「已完成」
+        ) : (
+          <>
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-black/5 dark:border-white/5 shrink-0">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#07C160]" />
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  {isTodayView ? '今日已完成' : '已完成 (Done)'}
+                </h3>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-black/5 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+                  {completedTasks.length}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDoneCollapsed(true)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                title="收起此列以专注进行中任务"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
-          )}
 
-          {completedTasks.map((t) => (
-            <div
-              key={t.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, t.id)}
-              onDragEnd={handleDragEnd}
-              className={`rounded-xl transition-all duration-150 cursor-grab active:cursor-grabbing ${
-                draggingTaskId === t.id ? 'opacity-30 scale-95' : 'opacity-100'
-              }`}
-            >
-              <TaskItem
-                task={t}
-                onToggleComplete={onToggleComplete}
-                onToggleToday={onToggleToday}
-                onDelete={onDelete}
-                onEdit={onEdit}
-                onToggleTimer={onToggleTimer}
-                isTimerRunning={activeTimerTaskId === t.id}
-                showGrip={true}
-                onToggleSubTask={onToggleSubTask}
-                onUpdateSubTask={onUpdateSubTask}
-                onDeleteSubTask={onDeleteSubTask}
-                onAddSubTask={onAddSubTask}
-                footerAction={
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      type="button"
-                      draggable={false}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onUpdateTaskStatus(t.id, 'in_progress')
-                      }}
-                      className="flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[10px] text-[#07C160] hover:bg-[#07C160]/10 border border-[#07C160]/20 hover:border-[#07C160]/40 transition-colors"
-                      title="回退到上一状态（重新推进）"
-                    >
-                      <ArrowLeft className="w-2.5 h-2.5" />
-                      <span>重新推进</span>
-                    </button>
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0">
+              {dragOverColumn === 'completed' && (
+                <div className="h-16 rounded-xl border-2 border-dashed border-[#07C160] bg-[#07C160]/10 flex items-center justify-center text-xs font-medium text-[#07C160] animate-pulse">
+                  松开鼠标放入「已完成」
+                </div>
+              )}
 
-                    <button
-                      type="button"
-                      draggable={false}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onUpdateTaskStatus(t.id, 'todo')
-                      }}
-                      className="flex items-center space-x-1 px-1.5 py-0.5 rounded-lg text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                      title="恢复为待开始"
-                    >
-                      <RotateCcw className="w-2.5 h-2.5" />
-                      <span>待办</span>
-                    </button>
-                  </div>
-                }
-              />
+              {completedTasks.map((t) => (
+                <div
+                  key={t.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, t.id)}
+                  onDragEnd={handleDragEnd}
+                  className={`rounded-xl transition-all duration-150 cursor-grab active:cursor-grabbing ${
+                    draggingTaskId === t.id ? 'opacity-30 scale-95' : 'opacity-100'
+                  }`}
+                >
+                  <TaskItem
+                    task={t}
+                    onToggleComplete={onToggleComplete}
+                    onToggleToday={onToggleToday}
+                    onDelete={onDelete}
+                    onEdit={onEdit}
+                    onToggleTimer={onToggleTimer}
+                    isTimerRunning={activeTimerTaskId === t.id}
+                    showGrip={true}
+                    onToggleSubTask={onToggleSubTask}
+                    onUpdateSubTask={onUpdateSubTask}
+                    onDeleteSubTask={onDeleteSubTask}
+                    onAddSubTask={onAddSubTask}
+                    footerAction={
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <button
+                          type="button"
+                          draggable={false}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onUpdateTaskStatus(t.id, 'in_progress')
+                          }}
+                          className="flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[10px] text-[#07C160] hover:bg-[#07C160]/10 border border-[#07C160]/20 hover:border-[#07C160]/40 transition-colors"
+                          title="回退到上一状态（重新推进）"
+                        >
+                          <ArrowLeft className="w-2.5 h-2.5" />
+                          <span>重新推进</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          draggable={false}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onUpdateTaskStatus(t.id, 'todo')
+                          }}
+                          className="flex items-center space-x-1 px-1.5 py-0.5 rounded-lg text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                          title="恢复为待开始"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" />
+                          <span>待办</span>
+                        </button>
+                      </div>
+                    }
+                  />
+                </div>
+              ))}
+
+              {completedTasks.length === 0 && dragOverColumn !== 'completed' && (
+                <div className="h-28 rounded-xl border border-dashed border-slate-300/60 dark:border-white/10 flex flex-col items-center justify-center text-xs text-slate-400 dark:text-slate-500">
+                  <span>{isTodayView ? '今日暂无已完成' : '暂无已完成任务'}</span>
+                  <span className="text-[10px] mt-1 text-slate-400/80">
+                    {isTodayView ? '今日完成的任务将展示在此处' : '完成任务后将展示在此处'}
+                  </span>
+                </div>
+              )}
             </div>
-          ))}
-
-          {completedTasks.length === 0 && dragOverColumn !== 'completed' && (
-            <div className="h-28 rounded-xl border border-dashed border-slate-300/60 dark:border-white/10 flex flex-col items-center justify-center text-xs text-slate-400 dark:text-slate-500">
-              <span>暂无已完成任务</span>
-              <span className="text-[10px] mt-1 text-slate-400/80">完成任务后将展示在此处</span>
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   )
