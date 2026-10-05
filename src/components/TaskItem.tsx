@@ -24,6 +24,7 @@ import { DurationPicker, formatDuration } from './DurationPicker'
 
 interface TaskItemProps {
   task: Task
+  isCompact?: boolean
   onToggleComplete: (task: Task) => void
   onDelete: (id: string) => void
   onEdit: (task: Task) => void
@@ -42,6 +43,7 @@ interface TaskItemProps {
 
 export const TaskItem: React.FC<TaskItemProps> = ({
   task,
+  isCompact = false,
   onToggleComplete,
   onDelete,
   onEdit,
@@ -170,7 +172,9 @@ export const TaskItem: React.FC<TaskItemProps> = ({
 
   return (
     <div
-      className={`group relative p-3.5 rounded-xl border transition-all duration-200 no-drag ${
+      className={`group relative ${
+        isCompact ? 'p-2.5 px-3' : 'p-3.5'
+      } rounded-xl border transition-all duration-200 no-drag ${
         isCompleted
           ? 'bg-slate-100/60 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800/60 opacity-60'
           : isTimerRunning
@@ -231,7 +235,11 @@ export const TaskItem: React.FC<TaskItemProps> = ({
           </div>
 
           {task.notes && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed break-words">
+            <p
+              className={`mt-0.5 text-xs text-slate-500 dark:text-slate-400 ${
+                isCompact ? 'line-clamp-1' : 'line-clamp-2'
+              } leading-relaxed break-words`}
+            >
               {task.notes}
             </p>
           )}
@@ -387,7 +395,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
 
       {/* Subtasks Progress Bar & Inline Checklist (支持卡片就地勾选、编辑、删除与加项) */}
       {(subtasksTotal > 0 || isAddingSubtask) && (
-        <div className="mt-2.5 pt-2 border-t border-black/[0.04] dark:border-white/5 space-y-1.5">
+        <div className={`${isCompact ? 'mt-1.5 pt-1.5' : 'mt-2.5 pt-2'} border-t border-black/[0.04] dark:border-white/5 space-y-1.5`}>
           <div
             onClick={(e) => {
               e.stopPropagation()
@@ -639,7 +647,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
       )}
 
       {/* Card Footer: Metadata on left, Status Transition action on right */}
-      <div className="mt-2.5 pt-2 border-t border-black/[0.04] dark:border-white/5 flex items-center justify-between gap-2">
+      <div className={`${isCompact ? 'mt-1.5 pt-1.5' : 'mt-2.5 pt-2'} border-t border-black/[0.04] dark:border-white/5 flex items-center justify-between gap-2`}>
         <div className="flex items-center flex-wrap gap-1.5 text-[10px]">
           <span
             className={`shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded font-semibold border ${

@@ -12,6 +12,7 @@ import { KanbanView } from './components/KanbanView'
 import { MatrixView } from './components/MatrixView'
 import { CalendarView } from './components/CalendarView'
 import { CompletedArchiveView } from './components/CompletedArchiveView'
+import { WeekGroupedList } from './components/WeekGroupedList'
 import { UserProfileModal } from './components/UserProfileModal'
 import { ReadingView } from './components/reading/ReadingView'
 import { ReadingPlanModal } from './components/reading/ReadingPlanModal'
@@ -131,6 +132,18 @@ export const App: React.FC = () => {
   const [inboxPage, setInboxPage] = useState(1)
   const [inboxPageSize] = useState(15)
   const [inboxTotal, setInboxTotal] = useState(0)
+
+  // 紧凑卡片列表视图模式偏好
+  const [isCompactView, setIsCompactView] = useState<boolean>(() => {
+    return localStorage.getItem('taskflow_compact_view') === 'true'
+  })
+  const handleToggleCompact = () => {
+    setIsCompactView((prev) => {
+      const next = !prev
+      localStorage.setItem('taskflow_compact_view', String(next))
+      return next
+    })
+  }
 
   const [completedPage, setCompletedPage] = useState(1)
   const [completedPageSize] = useState(20)
@@ -1278,6 +1291,14 @@ export const App: React.FC = () => {
     return true
   })
 
+  // 是否包含多周计划结构（如文本拆解自动生成的周度计划、阶段任务）
+  const hasMultiWeekStructure = useMemo(() => {
+    if (filteredTasks.length <= 1) return false
+    return filteredTasks.some((t) =>
+      /第\s*(\d+|[一二三四五六七八九十百]+)\s*周/i.test(`${t.title} ${t.notes || ''}`)
+    )
+  }, [filteredTasks])
+
   // 视口与分页精准切片计算 (Inbox 分页、已完成分页)
   const totalInboxFiltered = currentView === 'inbox' ? filteredTasks.length : 0
   const effectiveInboxTotal = Math.max(inboxTotal, totalInboxFiltered)
@@ -1908,30 +1929,29 @@ export const App: React.FC = () => {
               </div>
             ) : (
               <>
-                {displayedTasks.map((t) => (
-                  <TaskItem
-                    key={t.id}
-                    task={t}
-                    onToggleComplete={handleToggleComplete}
-                    onToggleToday={handleToggleToday}
-                    onDelete={handleDeleteTask}
-                    onEdit={(task) => {
-                      setEditingTask(task)
-                      setIsTaskModalOpen(true)
-                    }}
-                    onToggleTimer={handleToggleTimer}
-                    isTimerRunning={activeTimerTask?.id === t.id}
-                    onOpenReadingProgress={(task) => setActiveProgressTask(task)}
-                    onOpenReader={handleOpenReaderFromTask}
-                    onToggleSubTask={handleToggleSubTask}
-                    onUpdateSubTask={handleUpdateSubTask}
-                    onDeleteSubTask={handleDeleteSubTask}
-                    onAddSubTask={handleAddSubTask}
-                  />
-                ))}
+                <WeekGroupedList
+                  tasks={hasMultiWeekStructure ? filteredTasks : displayedTasks}
+                  onToggleComplete={handleToggleComplete}
+                  onToggleToday={handleToggleToday}
+                  onDelete={handleDeleteTask}
+                  onEdit={(task) => {
+                    setEditingTask(task)
+                    setIsTaskModalOpen(true)
+                  }}
+                  onToggleTimer={handleToggleTimer}
+                  activeTimerTaskId={activeTimerTask?.id}
+                  onOpenReadingProgress={(task) => setActiveProgressTask(task)}
+                  onOpenReader={handleOpenReaderFromTask}
+                  onToggleSubTask={handleToggleSubTask}
+                  onUpdateSubTask={handleUpdateSubTask}
+                  onDeleteSubTask={handleDeleteSubTask}
+                  onAddSubTask={handleAddSubTask}
+                  isCompact={isCompactView}
+                  onToggleCompact={handleToggleCompact}
+                />
 
-                {/* Inbox 收集箱分页控制栏 */}
-                {currentView === 'inbox' && effectiveInboxTotal > inboxPageSize && (
+                {/* Inbox 收集箱分页控制栏 (仅在非多周分组且超出单页时显示) */}
+                {currentView === 'inbox' && !hasMultiWeekStructure && effectiveInboxTotal > inboxPageSize && (
                   <div className="flex items-center justify-between px-3 py-3 mt-4 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-500 dark:text-slate-400">
                     <div className="flex items-center space-x-1.5">
                       <span>共 <strong className="text-slate-700 dark:text-slate-300 font-semibold">{effectiveInboxTotal}</strong> 项收集箱待办</span>
