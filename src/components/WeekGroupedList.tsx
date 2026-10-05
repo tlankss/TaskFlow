@@ -11,6 +11,7 @@ import {
   AlignJustify,
   Layers,
   Sparkles,
+  Inbox,
 } from 'lucide-react'
 import { Task, SubTask } from '../types'
 import { TaskItem } from './TaskItem'
@@ -85,11 +86,13 @@ function parseTaskWeek(t: Task): { key: string; label: string; weekNum: number; 
     }
   }
 
+  // 最近待办/即时记录（未标记特定周次计划的任务）：
+  // 赋予 weekNum: -1，确保牢牢置顶展示在所有多周计划的最前面！
   return {
-    key: 'other',
-    label: '常规任务',
-    weekNum: 999999,
-    phaseName: undefined,
+    key: 'recent_inbox',
+    label: '最近待办',
+    weekNum: -1,
+    phaseName: '即时待整理',
   }
 }
 
@@ -143,6 +146,25 @@ export const WeekGroupedList: React.FC<WeekGroupedListProps> = ({
 
     const sorted = Array.from(map.values()).sort((a, b) => a.weekNum - b.weekNum)
 
+    // 组内排序：保证最近的任务排在最前面
+    sorted.forEach((g) => {
+      g.tasks.sort((a, b) => {
+        // 如果是最近任务组：按创建时间倒序（最新加入的排在最前面）
+        if (g.key === 'recent_inbox') {
+          const tA = new Date(a.created_at || 0).getTime()
+          const tB = new Date(b.created_at || 0).getTime()
+          return tB - tA
+        }
+        // 如果是周计划组：按 due_date 正序排列（周一 -> 周二 -> 周三 ... 周日，最近的排在前面）
+        if (a.due_date && b.due_date) {
+          return a.due_date.localeCompare(b.due_date)
+        }
+        if (a.due_date) return -1
+        if (b.due_date) return 1
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      })
+    })
+
     // 计算每组起止日期
     sorted.forEach((g) => {
       const dates = g.tasks
@@ -166,15 +188,19 @@ export const WeekGroupedList: React.FC<WeekGroupedListProps> = ({
     return groups.some((g) => g.key.startsWith('week_') || g.key.startsWith('date_'))
   }, [groups])
 
-  // 默认仅展开第一周，其余周收起
+  // 默认展开最近任务以及第 1 周，其余未来周默认折叠收起
   useEffect(() => {
     if (groups.length > 0) {
       setExpandedWeeks((prev) => {
-        // 如果已经有展开记录则保留，否则默认展开第 1 个分组
         if (Object.keys(prev).length > 0) return prev
         const initial: Record<string, boolean> = {}
-        groups.forEach((g, idx) => {
-          initial[g.key] = idx === 0
+        groups.forEach((g) => {
+          // 最近待办或第 1 周默认展开
+          if (g.key === 'recent_inbox' || g.weekNum <= 1) {
+            initial[g.key] = true
+          } else {
+            initial[g.key] = false
+          }
         })
         return initial
       })
@@ -214,6 +240,24 @@ export const WeekGroupedList: React.FC<WeekGroupedListProps> = ({
   }, [groups, selectedWeekTab])
 
   // 普通列表模式（无多周结构时直接线性展示，带紧凑切换）
+  // 最近的任务展示在最前面（排期临近 > 最新创建优先）
+  const sortedLinearTasks = useMemo(() => {
+    return [...tasks].sort((a, b) => {
+      // 1. 如果都有 due_date，按 due_date 升序（临近的排在前面）
+      if (a.due_date && b.due_date) {
+        if (a.due_date !== b.due_date) return a.due_date.localeCompare(b.due_date)
+      } else if (a.due_date) {
+        return -1
+      } else if (b.due_date) {
+        return 1
+      }
+      // 2. 无 due_date 或 due_date 相同，按创建时间倒序（最新创建的在最前面）
+      const tA = new Date(a.created_at || 0).getTime()
+      const tB = new Date(b.created_at || 0).getTime()
+      return tB - tA
+    })
+  }, [tasks])
+
   if (!hasMultipleWeeks) {
     return (
       <div className="space-y-2.5">
@@ -234,7 +278,7 @@ export const WeekGroupedList: React.FC<WeekGroupedListProps> = ({
           </button>
         </div>
 
-        {tasks.map((t) => (
+        {sortedLinearTasks.map((t) => (
           <TaskItem
             key={t.id}
             task={t}
@@ -290,14 +334,19 @@ export const WeekGroupedList: React.FC<WeekGroupedListProps> = ({
                   className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
                     isSelected
                       ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm shadow-[#07C160]/20 font-semibold'
+                      : g.key === 'recent_inbox'
+                      ? 'bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-400 font-semibold hover:bg-amber-500/20'
                       : 'bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-900'
                   }`}
                 >
+                  {g.key === 'recent_inbox' && <Inbox className="w-3.5 h-3.5 text-amber-500" />}
                   <span>{g.label}</span>
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                       isSelected
                         ? 'bg-white/20 text-white'
+                        : g.key === 'recent_inbox'
+                        ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold'
                         : 'bg-black/5 dark:bg-white/10 text-slate-500 dark:text-slate-400'
                     }`}
                   >
@@ -369,17 +418,30 @@ export const WeekGroupedList: React.FC<WeekGroupedListProps> = ({
                 className="px-4 py-3 bg-white/80 dark:bg-slate-900/80 hover:bg-white dark:hover:bg-slate-900/90 cursor-pointer flex items-center justify-between gap-3 select-none transition-colors border-b border-black/[0.03] dark:border-white/5"
               >
                 <div className="flex items-center space-x-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                    <Calendar className="w-4 h-4" />
+                  <div
+                    className={`w-7 h-7 rounded-lg ${
+                      g.key === 'recent_inbox'
+                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    } flex items-center justify-center shrink-0`}
+                  >
+                    {g.key === 'recent_inbox' ? <Inbox className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}
                   </div>
 
                   <div className="flex items-center space-x-2 min-w-0 flex-wrap">
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight">
-                      {g.label}
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight flex items-center space-x-1">
+                      {g.key === 'recent_inbox' && <span>📥</span>}
+                      <span>{g.label}</span>
                     </h3>
 
                     {g.phaseName && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium">
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full ${
+                          g.key === 'recent_inbox'
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold border border-amber-500/20'
+                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
+                        }`}
+                      >
                         {g.phaseName}
                       </span>
                     )}
